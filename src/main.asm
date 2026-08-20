@@ -1,0 +1,2657 @@
+;==============================================================================
+; FamilyBird 2  --  クリーン再実装版
+;   2026  Ryota NISHIMURA (JAPAN) + Claude
+;   原作: FamilyBird (2014/04/28) by Ryota NISHIMURA
+;
+; 原作からの主な改善:
+;   - ゲームロジックをメインスレッドへ (NMIはDMA/VRAMバッファ転送/サウンドのみ)
+;   - VRAM書き込みはすべてVBlank内 (バッファ経由) → 画面化け解消
+;   - 数学的当たり判定 (VRAM読み出し判定を廃止)
+;   - 垂直ミラーリング + 2画面ネームテーブルで無限横スクロール
+;   - 土管は4スロット循環 (画面外で再生成)，スコア上昇で上下移動
+;   - アイテム (コイン/スター/チェリー)
+;   - 自作サウンドドライバ (DPCM打楽器つき5ch)
+;==============================================================================
+
+	.inesprg 2		; PRG-ROM 32KB
+	.ineschr 1		; CHR-ROM 8KB
+	.inesmir 1		; 垂直ミラーリング (横スクロール用)
+	.inesmap 0		; NROM
+
+;------------------------------------------------------------------------------
+; PPU/APUレジスタ
+;------------------------------------------------------------------------------
+PPUCTRL		.equ	$2000
+PPUMASK		.equ	$2001
+PPUSTAT		.equ	$2002
+OAMADDR		.equ	$2003
+PPUSCROLL	.equ	$2005
+PPUADDR		.equ	$2006
+PPUDATA		.equ	$2007
+SPRDMA		.equ	$4014
+
+;------------------------------------------------------------------------------
+; 定数
+;------------------------------------------------------------------------------
+BIRD_X		.equ	60	; 鳥の画面X座標(固定)
+BIRD_Y_INIT	.equ	120
+GAP_ROWS	.equ	9	; 土管ゲートの縦幅(行)
+GAP_MIN		.equ	3	; ゲート上端の最小行
+GAP_MAX		.equ	14	; ゲート上端の最大行
+GRAVITY		.equ	$30	; 重力 (8.8固定小数, /frame)
+FLAP_VEL_HI	.equ	$FD	; 羽ばたき初速 (-2.75px/f = $FD40)
+FLAP_VEL_LO	.equ	$40
+MAXFALL_HI	.equ	$04	; 最大落下速度 4px/f
+GROUND_Y	.equ	178	; 地面衝突Y(鳥の上端基準)
+MOVE_PERIOD	.equ	14	; 移動土管の1ステップフレーム数
+STAR_TIME	.equ	180	; スター無敵時間 x2フレーム(下記で2回デクリメント調整)
+
+; シーン番号
+SC_LOGO		.equ	0
+SC_TITLE	.equ	1
+SC_GAME		.equ	2
+SC_OVER		.equ	3
+SC_STAFF	.equ	4
+
+; ゲーム内状態
+GS_WAIT		.equ	0
+GS_RUN		.equ	1
+GS_DEAD		.equ	2
+
+; パッドビット
+PAD_A		.equ	%10000000
+PAD_B		.equ	%01000000
+PAD_SL		.equ	%00100000
+PAD_ST		.equ	%00010000
+PAD_UP		.equ	%00001000
+PAD_DN		.equ	%00000100
+PAD_LF		.equ	%00000010
+PAD_RI		.equ	%00000001
+
+; 文字→CHR変換 ('0'=$30 → CHR $C0)
+STR2CHR		.equ	$90
+TILE_SKY	.equ	$EC
+
+; SFX番号
+SE_FLAP		.equ	0
+SE_POINT	.equ	1
+SE_HIT		.equ	2
+SE_ITEM		.equ	3
+SE_STAR		.equ	4
+SE_SELECT	.equ	5
+
+; 曲番号
+MUS_TITLE	.equ	1
+MUS_STAGE	.equ	2
+MUS_OVER	.equ	3
+MUS_STAFF	.equ	4
+
+;------------------------------------------------------------------------------
+; ゼロページ変数
+;------------------------------------------------------------------------------
+T0		.equ	$00	; 汎用テンポラリ
+T1		.equ	$01
+T2		.equ	$02
+T3		.equ	$03
+T4		.equ	$04
+T5		.equ	$05
+T6		.equ	$06
+T7		.equ	$07
+PTR_L		.equ	$08	; 汎用ポインタ
+PTR_H		.equ	$09
+
+SCENE		.equ	$0E
+FRAME_DONE	.equ	$0F	; NMI完了フラグ (メインループ同期)
+PPU_ON		.equ	$10	; 描画中フラグ (NMIのバッファ転送許可)
+FRAME_CNT	.equ	$13
+RNG		.equ	$14	; 乱数
+SCROLL_L	.equ	$15	; スクロールX (0-511)
+SCROLL_H	.equ	$16
+GAME_ST		.equ	$19	; ゲーム内状態 (GS_*)
+SCORE		.equ	$1A	; $1A-$1F: 6桁 (10進, 下位桁から)
+HISCORE		.equ	$26	; $26-$2B: ハイスコア6桁
+
+PAD_ON		.equ	$20	; 現在押下ボタン
+PAD_TRG		.equ	$21	; 今フレーム押下ボタン
+PAD_OLD		.equ	$22
+PAD_TMP		.equ	$23
+
+BIRD_Y		.equ	$30	; Y座標(整数部)
+BIRD_YF		.equ	$31	; Y座標(小数部)
+VEL_L		.equ	$32	; Y速度 (8.8固定小数, 符号付き)
+VEL_H		.equ	$33
+BIRD_SPR	.equ	$34	; スプライトベースタイル
+BIRD_ANIM	.equ	$35	; アニメカウンタ
+CHARA_NO	.equ	$36	; キャラ番号 0-4
+STAR_TIMER	.equ	$37	; 無敵残り時間
+BOB_CNT		.equ	$38	; 待機中の浮遊カウンタ
+SCR_TIMER	.equ	$3B	; シーンタイマー
+SCR_TIMER_S	.equ	$3C
+CURSOR		.equ	$3D	; タイトルメニューカーソル
+INITED		.equ	$3E
+BUF_READY	.equ	$40	; VRAMバッファ転送要求
+BUF_LEN		.equ	$41	; VRAMバッファ書き込み位置
+PAL_DIRTY	.equ	$42	; パレット転送要求
+SCORE_DIRTY	.equ	$48
+FLAP_HOLD	.equ	$49	; 羽ばたきアニメ用
+PUSHA_BLINK	.equ	$4A
+SLOT_TMP	.equ	$4B
+ITEM_IDX	.equ	$4C
+DRAW_C0		.equ	$4E	; 土管描画 開始列(0-3)
+DRAW_C1		.equ	$4F	; 土管描画 終了列(0-3)
+
+; $50-$5F : サウンドドライバ用 (sound.asm参照)
+
+;------------------------------------------------------------------------------
+; 絶対RAM
+;------------------------------------------------------------------------------
+OAM_BUF		.equ	$0200	; OAMシャドウ
+VBUF		.equ	$0300	; VRAM更新バッファ [len|addrH|addrL|data...] len=0終端
+				;   addrH bit7=1: +32モード(縦書き)
+VBUF_MAX	.equ	$B0	; バッファ容量
+
+; 土管スロット (4本, 16列間隔で循環)
+PIPE_ACT	.equ	$0400	; +0-3: 土管あり
+PIPE_GAP	.equ	$0404	; ゲート上端行
+PIPE_MOV	.equ	$0408	; 移動中フラグ
+PIPE_DIR	.equ	$040C	; 移動方向 (1 or $FF)
+PIPE_CNT	.equ	$0410	; 移動タイマー
+PIPE_PASS	.equ	$0414	; 通過済み(得点済み)
+PIPE_RECYC	.equ	$0418	; 再生成済みフラグ
+
+; アイテム (2個)
+ITEM_ACT	.equ	$0420	; +0,1: 有効
+ITEM_TYPE	.equ	$0422	; 0=コイン 1=スター 2=チェリー
+ITEM_XL		.equ	$0424	; NT空間X (0-511)
+ITEM_XH		.equ	$0426
+ITEM_Y		.equ	$0428
+ITEM_ANIM	.equ	$042A
+ITEM_ARM	.equ	$042C	; 画面右から入場済みフラグ
+
+COLBUF		.equ	$0430	; 列タイル生成バッファ (30行)
+PAL_BUF		.equ	$04C0	; パレットシャドウ 32byte
+
+; $0500-$05FF : サウンドドライバ用 (sound.asm参照)
+
+;==============================================================================
+; バンク0 ($8000-)  メインプログラム
+;==============================================================================
+	.bank 0
+	.org $8000
+
+;------------------------------------------------------------------------------
+; リセット
+;------------------------------------------------------------------------------
+Reset:
+	sei
+	cld
+	ldx #$40
+	stx $4017		; APUフレームIRQ禁止
+	ldx #$FF
+	txs
+	inx			; X=0
+	stx PPUCTRL		; NMI禁止
+	stx PPUMASK		; 描画OFF
+	stx $4010		; DPCM IRQ禁止
+
+	; VBlank待ち x2 (PPU安定化)
+	bit PPUSTAT
+.vw1
+	bit PPUSTAT
+	bpl .vw1
+	; RAMクリア
+	lda #$00
+	tax
+.clrram
+	sta $0000,x
+	sta $0100,x
+	sta $0300,x
+	sta $0400,x
+	sta $0500,x
+	sta $0600,x
+	sta $0700,x
+	inx
+	bne .clrram
+	; OAMシャドウは画面外へ
+	jsr SpriteInit
+.vw2
+	bit PPUSTAT
+	bpl .vw2
+
+	; サウンド初期化
+	jsr sound_init
+
+	lda #1
+	sta <RNG
+
+	; SHOKOロゴシーンから
+	lda #SC_LOGO
+	sta <SCENE
+	lda #0
+	sta <INITED
+
+	; NMI許可 (描画はシーン初期化側でON)
+	lda #%10001000		; NMI有効, SPRパタン$1000, BGパタン$0000
+	sta PPUCTRL
+
+;------------------------------------------------------------------------------
+; メインループ (ゲームロジックはすべてここ; NMIと分離)
+;------------------------------------------------------------------------------
+MainLoop:
+	; NMI完了待ち
+.wait
+	lda <FRAME_DONE
+	beq .wait
+	lda #0
+	sta <FRAME_DONE
+
+	jsr PadRead
+	jsr RngStep
+
+	; シーン分岐
+	lda <SCENE
+	cmp #SC_LOGO
+	bne .n1
+	jsr SceneLogo
+	jmp MainLoop
+.n1
+	cmp #SC_TITLE
+	bne .n2
+	jsr SceneTitle
+	jmp MainLoop
+.n2
+	cmp #SC_GAME
+	bne .n3
+	jsr SceneGame
+	jmp MainLoop
+.n3
+	cmp #SC_OVER
+	bne .n4
+	jsr SceneOver
+	jmp MainLoop
+.n4
+	jsr SceneStaff
+	jmp MainLoop
+
+;------------------------------------------------------------------------------
+; NMIハンドラ: OAM DMA / VRAMバッファ転送 / スクロール設定 / サウンド
+;------------------------------------------------------------------------------
+NMI:
+	pha
+	txa
+	pha
+	tya
+	pha
+
+	lda <PPU_ON
+	beq .nogfx		; 描画OFF中(シーン構築中)はPPUに一切触らない
+	bit PPUSTAT		; アドレスラッチクリア
+
+	; --- OAM DMA ---
+	lda #$00
+	sta OAMADDR
+	lda #high(OAM_BUF)
+	sta SPRDMA
+
+	; --- VRAMバッファ転送 ---
+	lda <BUF_READY
+	beq .nobuf
+	jsr VbufFlush
+	lda #0
+	sta <BUF_READY
+	sta <BUF_LEN
+	lda #0
+	sta VBUF
+.nobuf
+	; --- パレット転送 ---
+	lda <PAL_DIRTY
+	beq .nopal
+	lda #%10001000		; +1モードに戻す (バッファ転送が+32のままの場合がある)
+	sta PPUCTRL
+	lda #$3F
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	ldx #0
+.palcp
+	lda PAL_BUF,x
+	sta PPUDATA
+	inx
+	cpx #32
+	bne .palcp
+	lda #0
+	sta <PAL_DIRTY
+.nopal
+	; --- 描画ON要求 (PPU_ON=2 -> VBlank内でON) ---
+	lda <PPU_ON
+	cmp #2
+	bne .noturn
+	lda #%00011110		; スプライト+BG表示ON
+	sta PPUMASK
+	lda #1
+	sta <PPU_ON
+.noturn
+	; --- スクロール設定 ---
+	lda <SCROLL_H
+	and #$01		; bit0 -> ネームテーブル選択
+	ora #%10001000
+	sta PPUCTRL
+	lda <SCROLL_L
+	sta PPUSCROLL
+	lda #0
+	sta PPUSCROLL
+.nogfx
+	; --- サウンド (毎フレーム必ず) ---
+	jsr sound_update
+
+	inc <FRAME_CNT
+	lda #1
+	sta <FRAME_DONE
+
+	pla
+	tay
+	pla
+	tax
+	pla
+IRQ:
+	rti
+
+;------------------------------------------------------------------------------
+; VRAMバッファ転送 (NMI内から呼ばれる)
+;------------------------------------------------------------------------------
+VbufFlush:
+	ldx #0
+.entry
+	lda VBUF,x		; len
+	beq .done
+	sta <T0
+	inx
+	lda VBUF,x		; addrH (bit7=縦書き)
+	bpl .horiz
+	and #$3F
+	sta <T1
+	lda #%10001100		; +32モード
+	sta PPUCTRL
+	jmp .setaddr
+.horiz
+	sta <T1
+	lda #%10001000		; +1モード
+	sta PPUCTRL
+.setaddr
+	lda <T1
+	sta PPUADDR
+	inx
+	lda VBUF,x
+	sta PPUADDR
+	inx
+.data
+	lda VBUF,x
+	sta PPUDATA
+	inx
+	dec <T0
+	bne .data
+	jmp .entry
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; パッド読み取り (DPCM再生中のバス衝突対策で一致するまで再読)
+;------------------------------------------------------------------------------
+PadRead:
+	jsr PadReadOnce
+	lda <PAD_TMP
+	pha
+	jsr PadReadOnce
+	pla
+	cmp <PAD_TMP
+	bne PadRead		; 不一致なら再読
+	; トリガ計算
+	lda <PAD_TMP
+	tay
+	eor <PAD_OLD
+	and <PAD_TMP
+	sta <PAD_TRG
+	sty <PAD_OLD
+	sty <PAD_ON
+	rts
+
+PadReadOnce:
+	lda #$01
+	sta $4016
+	lda #$00
+	sta $4016
+	ldx #8
+.rd
+	lda $4016
+	lsr a
+	rol <PAD_TMP
+	dex
+	bne .rd
+	rts
+
+;------------------------------------------------------------------------------
+; 乱数 (8bit LFSR)
+;------------------------------------------------------------------------------
+RngStep:
+	lda <RNG
+	asl a
+	bcc .noeor
+	eor #$1D
+.noeor
+	sta <RNG
+	bne .ok
+	lda #1			; 0になったら再シード
+	sta <RNG
+.ok
+	rts
+
+;------------------------------------------------------------------------------
+; スプライトシャドウ初期化 (全部画面外へ)
+;------------------------------------------------------------------------------
+SpriteInit:
+	lda #$FF
+	ldx #0
+.loop
+	sta OAM_BUF,x		; Y=$FF で画面外
+	inx
+	inx
+	inx
+	inx
+	bne .loop
+	rts
+
+;------------------------------------------------------------------------------
+; 16x16スプライト設定
+;  IN A:スプライト番号(先頭)  X:x座標  Y:y座標  T0:タイル左上
+;     T1:属性(上段)  T4:属性(下段)
+;------------------------------------------------------------------------------
+SetSprite16:
+	stx <T2			; x退避
+	sty <T3			; y退避
+	asl a
+	asl a
+	tax			; X = OAMオフセット
+	; 左上
+	lda <T3
+	sta OAM_BUF,x
+	lda <T0
+	sta OAM_BUF+1,x
+	lda <T1
+	sta OAM_BUF+2,x
+	lda <T2
+	sta OAM_BUF+3,x
+	; 右上
+	lda <T3
+	sta OAM_BUF+4,x
+	lda <T0
+	clc
+	adc #1
+	sta OAM_BUF+5,x
+	lda <T1
+	sta OAM_BUF+6,x
+	lda <T2
+	clc
+	adc #8
+	sta OAM_BUF+7,x
+	; 左下
+	lda <T3
+	clc
+	adc #8
+	sta OAM_BUF+8,x
+	lda <T0
+	clc
+	adc #$10
+	sta OAM_BUF+9,x
+	lda <T4
+	sta OAM_BUF+10,x
+	lda <T2
+	sta OAM_BUF+11,x
+	; 右下
+	lda <T3
+	clc
+	adc #8
+	sta OAM_BUF+12,x
+	lda <T0
+	clc
+	adc #$11
+	sta OAM_BUF+13,x
+	lda <T4
+	sta OAM_BUF+14,x
+	lda <T2
+	clc
+	adc #8
+	sta OAM_BUF+15,x
+	rts
+
+;------------------------------------------------------------------------------
+; 16x16スプライトを隠す IN A:スプライト番号(先頭)
+;------------------------------------------------------------------------------
+HideSprite16:
+	asl a
+	asl a
+	tax
+	lda #$FF
+	sta OAM_BUF,x
+	sta OAM_BUF+4,x
+	sta OAM_BUF+8,x
+	sta OAM_BUF+12,x
+	rts
+
+;------------------------------------------------------------------------------
+; スコア加算  IN A:加算値(0-9)  X:桁位置(0=1の位)
+;------------------------------------------------------------------------------
+ScoreAdd:
+	clc
+	adc <SCORE,x
+.carry
+	cmp #10
+	bcc .store
+	sec
+	sbc #10
+	sta <SCORE,x
+	inx
+	cpx #6
+	bcs .done		; 桁あふれは無視
+	lda <SCORE,x
+	clc
+	adc #1
+	jmp .carry
+.store
+	sta <SCORE,x
+.done
+	lda #1
+	sta <SCORE_DIRTY
+	rts
+
+;------------------------------------------------------------------------------
+; スコア表示 (スプライト12枚: 6桁 x 上下)
+;   スプライト番号5〜16を使用, 位置(200,20)から左へ
+;------------------------------------------------------------------------------
+DrawScore:
+	ldx #0			; 桁
+	lda #5
+	asl a
+	asl a
+	tay			; OAMオフセット
+	lda #200
+	sta <T4			; x座標
+.digit
+	lda <SCORE,x
+	clc
+	adc #$C0		; 数字タイル
+	sta <T2
+	; 上半分
+	lda #20
+	sta OAM_BUF,y
+	lda <T2
+	sta OAM_BUF+1,y
+	lda #%00000010		; パレット2 (UI)
+	sta OAM_BUF+2,y
+	lda <T4
+	sta OAM_BUF+3,y
+	; 下半分
+	lda #28
+	sta OAM_BUF+4,y
+	lda <T2
+	clc
+	adc #$10
+	sta OAM_BUF+5,y
+	lda #%00000010
+	sta OAM_BUF+6,y
+	lda <T4
+	sta OAM_BUF+7,y
+	; 次の桁 (左へ9px)
+	tya
+	clc
+	adc #8
+	tay
+	lda <T4
+	sec
+	sbc #9
+	sta <T4
+	inx
+	cpx #6
+	bne .digit
+	lda #0
+	sta <SCORE_DIRTY
+	rts
+
+;------------------------------------------------------------------------------
+; テキストをVRAMへ直接描画 (描画OFF時専用)
+;  IN PTR_L/H:文字列(';'終端, ASCII)  T4:BG列(0-31)  T5:BG行(0-29)
+;------------------------------------------------------------------------------
+TextPrint:
+	; アドレス計算: $2000 + y*32 + x
+	lda <T5
+	lsr a
+	lsr a
+	lsr a			; y/8
+	clc
+	adc #$20
+	sta PPUADDR
+	lda <T5
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a			; y*32 (下位)
+	clc
+	adc <T4
+	sta PPUADDR
+	ldy #0
+.loop
+	lda [PTR_L],y
+	cmp #';'
+	beq .done
+	cmp #' '
+	bne .chr
+	lda #TILE_SKY		; 空白は空タイル
+	jmp .put
+.chr
+	clc
+	adc #STR2CHR
+.put
+	sta PPUDATA
+	iny
+	bne .loop
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; パレット一括ロード (シャドウへ; 転送はNMI)
+;  IN PTR_L/H: 32byteパレットデータ
+;------------------------------------------------------------------------------
+PalLoad:
+	ldy #0
+.loop
+	lda [PTR_L],y
+	sta PAL_BUF,y
+	iny
+	cpy #32
+	bne .loop
+	lda #1
+	sta <PAL_DIRTY
+	rts
+
+;------------------------------------------------------------------------------
+; キャラクタ用スプライトパレット設定 (PAL_BUF+16〜へ)
+;   pal0=キャラ上段, pal1=キャラ下段, pal2=UI白, pal3=アイテム
+;  IN A: キャラ番号(0-4)
+;------------------------------------------------------------------------------
+SetCharaPal:
+	asl a
+	asl a
+	asl a
+	asl a			; x16
+	tax
+	; pal0 <- テーブル行0
+	ldy #0
+.p0
+	lda CharaPalTbl,x
+	sta PAL_BUF+16,y
+	inx
+	iny
+	cpy #4
+	bne .p0
+	; pal1 <- テーブル行2
+	inx
+	inx
+	inx
+	inx			; 行1を飛ばす
+	ldy #0
+.p1
+	lda CharaPalTbl,x
+	sta PAL_BUF+20,y
+	inx
+	iny
+	cpy #4
+	bne .p1
+	; pal2 = UI (白)
+	lda #$21
+	sta PAL_BUF+24
+	lda #$20
+	sta PAL_BUF+25
+	lda #$0F
+	sta PAL_BUF+26
+	lda #$17
+	sta PAL_BUF+27
+	; pal3 = アイテム (金/赤/緑)
+	lda #$21
+	sta PAL_BUF+28
+	lda #$28
+	sta PAL_BUF+29
+	lda #$16
+	sta PAL_BUF+30
+	lda #$2A
+	sta PAL_BUF+31
+	lda #1
+	sta <PAL_DIRTY
+	rts
+
+;==============================================================================
+; ステージ生成
+;==============================================================================
+;------------------------------------------------------------------------------
+; 1列分のタイル生成
+;  IN T0:列(0-63)  T1:土管あり?  T2:ゲート上端行  T3:土管内列位置(0-3)
+;  OUT COLBUF[0..29]
+;------------------------------------------------------------------------------
+ColMake:
+	ldx #0			; 行
+.row
+	lda <T1
+	beq .empty
+	; ----- 土管列 -----
+	cpx #26
+	bcs .ground
+	; r と ゲートの関係
+	txa
+	clc
+	adc #2
+	cmp <T2			; r+2 < gap → 上部本体 (r < gap-2)
+	bcc .body
+	txa
+	clc
+	adc #2
+	cmp <T2
+	beq .captop		; r == gap-2
+	txa
+	clc
+	adc #1
+	cmp <T2
+	beq .capbot		; r == gap-1
+	txa
+	cmp <T2
+	bcc .body		; ここには来ないが保険
+	; r >= gap
+	sec
+	sbc <T2			; A = r - gap
+	cmp #GAP_ROWS
+	bcc .sky		; ゲート内
+	beq .captop		; r == gap+GAP
+	cmp #GAP_ROWS+1
+	beq .capbot		; r == gap+GAP+1
+.body
+	lda #$60
+	clc
+	adc <T3
+	jmp .put
+.captop
+	lda #$40
+	clc
+	adc <T3
+	jmp .put
+.capbot
+	lda #$50
+	clc
+	adc <T3
+	jmp .put
+.sky
+	lda #TILE_SKY
+	jmp .put
+	; ----- 空列 -----
+.empty
+	cpx #22
+	bcc .sky
+	cpx #26
+	bcs .ground
+	; 背景ストリップ (雲/ビル/草) 行22-25
+	txa
+	sec
+	sbc #22			; 0-3
+	asl a
+	asl a
+	asl a
+	asl a			; x16
+	clc
+	adc #$70
+	sta <T6
+	lda <T0
+	and #$03
+	clc
+	adc <T6
+	jmp .put
+.ground
+	cpx #28
+	bcs .under
+	lda #$F0		; 地面
+	jmp .put
+.under
+	lda #$AC		; 地下ブロック
+.put
+	sta COLBUF,x
+	inx
+	cpx #30
+	beq .rdone
+	jmp .row
+.rdone
+	rts
+
+;------------------------------------------------------------------------------
+; COLBUFの行0-29をVRAMへ直接書き込み (描画OFF時専用)
+;  IN T0:列(0-63)
+;------------------------------------------------------------------------------
+ColWriteDirect:
+	lda #%10001100		; +32モード
+	sta PPUCTRL
+	; アドレス: $2000 + (col>=32? $400:0) + col&31
+	lda <T0
+	and #$20
+	lsr a
+	lsr a
+	lsr a			; $20 -> $04
+	clc
+	adc #$20
+	sta PPUADDR
+	lda <T0
+	and #$1F
+	sta PPUADDR
+	ldx #0
+.loop
+	lda COLBUF,x
+	sta PPUDATA
+	inx
+	cpx #30
+	bne .loop
+	rts
+
+;------------------------------------------------------------------------------
+; COLBUFの行T4〜T5をVRAMバッファへ縦書きエントリとして追加
+;  IN T0:列(0-63)  T4:開始行  T5:終了行(含む)
+;------------------------------------------------------------------------------
+ColToBuf:
+	ldx <BUF_LEN
+	; len
+	lda <T5
+	sec
+	sbc <T4
+	clc
+	adc #1
+	sta VBUF,x
+	sta <T6			; 残数
+	inx
+	; addrH = $80(縦) | $20 | NT | (row>>3)
+	lda <T0
+	and #$20
+	lsr a
+	lsr a
+	lsr a
+	sta <T7
+	lda <T4
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc <T7
+	clc
+	adc #$20
+	ora #$80
+	sta VBUF,x
+	inx
+	; addrL = (row&7)<<5 | col&31
+	lda <T4
+	and #$07
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	sta <T7
+	lda <T0
+	and #$1F
+	ora <T7
+	sta VBUF,x
+	inx
+	; データ
+	ldy <T4
+.loop
+	lda COLBUF,y
+	sta VBUF,x
+	inx
+	iny
+	dec <T6
+	bne .loop
+	; 終端マーク
+	lda #0
+	sta VBUF,x
+	stx <BUF_LEN
+	rts
+
+;------------------------------------------------------------------------------
+; 土管スロット描画 (直接書き込み版: 描画OFF時)
+;  IN X:スロット(0-3)
+;------------------------------------------------------------------------------
+PipeSlotDrawDirect:
+	stx <T7
+	lda #0
+	sta <T3			; 列位置j
+.col
+	lda <T7
+	asl a
+	asl a
+	asl a
+	asl a			; スロットx16
+	clc
+	adc <T3
+	sta <T0			; 列番号
+	ldx <T7
+	lda PIPE_ACT,x
+	sta <T1
+	lda PIPE_GAP,x
+	sta <T2
+	jsr ColMake
+	jsr ColWriteDirect
+	inc <T3
+	lda <T3
+	cmp #4
+	bne .col
+	rts
+
+;------------------------------------------------------------------------------
+; 土管スロット再描画 (バッファ版: プレイ中)
+;  IN X:スロット(0-3)  T4:開始行  T5:終了行
+;------------------------------------------------------------------------------
+PipeSlotDrawBuf:
+	stx <SLOT_TMP
+	lda <DRAW_C0
+	sta <T3
+.col
+	lda <SLOT_TMP
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc <T3
+	sta <T0
+	ldx <SLOT_TMP
+	lda PIPE_ACT,x
+	sta <T1
+	lda PIPE_GAP,x
+	sta <T2
+	jsr ColMake
+	jsr ColToBuf
+	lda <T3
+	cmp <DRAW_C1
+	beq .colsdone
+	inc <T3
+	jmp .col
+.colsdone
+	lda <DRAW_C1
+	cmp #3
+	beq .doattr
+	jmp .noattr
+.doattr
+	; 属性バイト (行20-23: 土管あり=全pal0 / なし=雲pal2)
+	ldx <BUF_LEN
+	lda #1
+	sta VBUF,x
+	inx
+	ldy <SLOT_TMP
+	lda PipeAttrHi,y
+	sta VBUF,x
+	inx
+	lda PipeAttrLo,y
+	sta VBUF,x
+	inx
+	lda PIPE_ACT,y
+	bne .attrpipe
+	lda #%10100000
+	jmp .attrput
+.attrpipe
+	lda #%00000000
+.attrput
+	sta VBUF,x
+	inx
+	lda #0
+	sta VBUF,x
+	stx <BUF_LEN
+.noattr
+	ldx <SLOT_TMP
+	lda #1
+	sta <BUF_READY
+	rts
+
+;------------------------------------------------------------------------------
+; ステージ全体構築 (描画OFF時)
+;------------------------------------------------------------------------------
+StageBuild:
+	; 全64列を空で敷き詰め
+	lda #0
+	sta <T0
+.cols
+	lda #0
+	sta <T1
+	jsr ColMake
+	jsr ColWriteDirect
+	inc <T0
+	lda <T0
+	cmp #64
+	bne .cols
+
+	; 属性テーブル (両ネームテーブル)
+	lda #$23
+	jsr StageAttr
+	lda #$27
+	jsr StageAttr
+
+	; 土管スロット初期化: 0,1=なし  2,3=あり
+	ldx #3
+.slotinit
+	lda #0
+	sta PIPE_ACT,x
+	sta PIPE_MOV,x
+	sta PIPE_PASS,x
+	sta PIPE_RECYC,x
+	lda #1
+	sta PIPE_DIR,x
+	lda #8
+	sta PIPE_GAP,x
+	txa
+	asl a
+	asl a
+	adc #MOVE_PERIOD
+	sta PIPE_CNT,x		; 位相をずらす
+	dex
+	bpl .slotinit
+	; スロット2,3に土管
+	ldx #2
+	jsr PipeNewGap
+	lda #1
+	sta PIPE_ACT+2
+	ldx #3
+	jsr PipeNewGap
+	lda #1
+	sta PIPE_ACT+3
+	ldx #2
+	jsr PipeSlotDrawDirect
+	ldx #3
+	jsr PipeSlotDrawDirect
+	; 初期土管の属性 (行20-23をpal0へ)
+	lda #%10001000		; +1モード
+	sta PPUCTRL
+	lda #$27
+	sta PPUADDR
+	lda #$E8
+	sta PPUADDR
+	lda #%00000000
+	sta PPUDATA		; スロット2
+	lda #$27
+	sta PPUADDR
+	lda #$EC
+	sta PPUADDR
+	lda #%00000000
+	sta PPUDATA		; スロット3
+	rts
+
+;------------------------------------------------------------------------------
+; 属性テーブル書き込み IN A:属性テーブル上位バイト($23/$27)
+;------------------------------------------------------------------------------
+StageAttr:
+	sta PPUADDR
+	lda #$C0
+	sta PPUADDR
+	lda #%10001000		; +1モード
+	sta PPUCTRL
+	; 行0-4: 空 (40byte)
+	lda #%00000000
+	ldx #40
+.a0
+	sta PPUDATA
+	dex
+	bne .a0
+	; 行5: 上=空pal0 下=雲ビルpal2
+	lda #%10100000
+	ldx #8
+.a1
+	sta PPUDATA
+	dex
+	bne .a1
+	; 行6: 上=草pal0 下=地面pal1
+	lda #%01010000
+	ldx #8
+.a2
+	sta PPUDATA
+	dex
+	bne .a2
+	; 行7: 上=地下pal3
+	lda #%00001111
+	ldx #8
+.a3
+	sta PPUDATA
+	dex
+	bne .a3
+	rts
+
+;------------------------------------------------------------------------------
+; 新しいゲート位置を乱数で決める IN X:スロット
+;------------------------------------------------------------------------------
+PipeNewGap:
+	jsr RngStep
+	lda <RNG
+	and #$0F
+	cmp #GAP_MAX-GAP_MIN+1
+	bcc .ok
+	sec
+	sbc #GAP_MAX-GAP_MIN+1
+	cmp #GAP_MAX-GAP_MIN+1
+	bcc .ok
+	lda #4			; 保険
+.ok
+	clc
+	adc #GAP_MIN
+	sta PIPE_GAP,x
+	rts
+
+;==============================================================================
+; シーン: SHOKOロゴ
+;==============================================================================
+SceneLogo:
+	lda <INITED
+	bne .update
+	; ---- 初期化 ----
+	lda #0
+	sta <PPU_ON
+	sta PPUMASK
+	sta <SCROLL_L
+	sta <SCROLL_H
+	jsr SpriteInit
+	; ロゴネームテーブル読み込み ($2000へ1KB)
+	lda #%10001000		; +1モード
+	sta PPUCTRL
+	bit PPUSTAT
+	lda #$20
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	lda #low(bglogo)
+	sta <PTR_L
+	lda #high(bglogo)
+	sta <PTR_H
+	ldx #4			; 4ページ
+	ldy #0
+.copy
+	lda [PTR_L],y
+	sta PPUDATA
+	iny
+	bne .copy
+	inc <PTR_H
+	dex
+	bne .copy
+	; パレット (シャドウ経由)
+	lda #low(tilepal_logo)
+	sta <PTR_L
+	lda #high(tilepal_logo)
+	sta <PTR_H
+	jsr PalLoad
+	lda #150
+	sta <SCR_TIMER
+	lda #1
+	sta <INITED
+	lda #2
+	sta <PPU_ON		; 次のVBlankで描画ON
+	rts
+.update
+	; A/START/SELECT または時間切れでタイトルへ
+	lda <PAD_TRG
+	and #PAD_A|PAD_ST|PAD_SL
+	bne .next
+	dec <SCR_TIMER
+	bne .stay
+.next
+	lda #SC_TITLE
+	jmp ChangeScene
+.stay
+	rts
+
+;------------------------------------------------------------------------------
+; シーン切り替え IN A:次のシーン
+;------------------------------------------------------------------------------
+ChangeScene:
+	sta <SCENE
+	lda #0
+	sta <INITED
+	rts
+
+;==============================================================================
+; シーン: タイトル
+;==============================================================================
+SceneTitle:
+	lda <INITED
+	beq .init
+	jmp TitleUpdate
+.init
+	; ---- 初期化 ----
+	lda #0
+	sta <PPU_ON
+	sta PPUMASK
+	sta <SCROLL_L
+	sta <SCROLL_H
+	sta <CURSOR
+	jsr SpriteInit
+	lda #%10001000		; +1モード
+	sta PPUCTRL
+	bit PPUSTAT
+	; NT0 を空タイルで埋める
+	lda #$20
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	lda #TILE_SKY
+	ldx #$C0		; 960 = 4x256-64
+	ldy #3
+.fill1
+	sta PPUDATA
+	dex
+	bne .fill1
+.fill2
+	sta PPUDATA
+	dex
+	bne .fill2
+	dey
+	bne .fill2
+	; 属性: 全部パレット1
+	lda #%01010101
+	ldx #64
+.attr
+	sta PPUDATA
+	dex
+	bne .attr
+
+	; タイトルロゴ (タイル$00-$3F, 16x4) を (8,6) に
+	lda #0
+	sta <T0			; タイル
+	lda #6
+	sta <T1			; 行
+.logorow
+	lda <T1
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #$20
+	sta PPUADDR
+	lda <T1
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc #8			; x=8
+	sta PPUADDR
+	ldx #16
+	lda <T0
+.logocol
+	sta PPUDATA
+	clc
+	adc #1
+	dex
+	bne .logocol
+	sta <T0
+	inc <T1
+	lda <T1
+	cmp #10
+	bne .logorow
+
+	; メニューテキスト
+	lda #low(StrGameStart)
+	sta <PTR_L
+	lda #high(StrGameStart)
+	sta <PTR_H
+	lda #11
+	sta <T4
+	lda #18			; 行18
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaffRoll)
+	sta <PTR_L
+	lda #high(StrStaffRoll)
+	sta <PTR_H
+	lda #11
+	sta <T4
+	lda #20			; 行20
+	sta <T5
+	jsr TextPrint
+	lda #low(StrCharaHint)
+	sta <PTR_L
+	lda #high(StrCharaHint)
+	sta <PTR_H
+	lda #6
+	sta <T4
+	lda #23			; 行23
+	sta <T5
+	jsr TextPrint
+	lda #low(StrCopyright)
+	sta <PTR_L
+	lda #high(StrCopyright)
+	sta <PTR_H
+	lda #6
+	sta <T4
+	lda #27			; 行27
+	sta <T5
+	jsr TextPrint
+
+	; ハイスコア "HI" + 数字
+	lda #low(StrHi)
+	sta <PTR_L
+	lda #high(StrHi)
+	sta <PTR_H
+	lda #10
+	sta <T4
+	lda #3			; 行3
+	sta <T5
+	jsr TextPrint
+	; 数字6桁 (上位桁から)
+	lda #$20
+	sta PPUADDR
+	lda #$6D		; 行3 x=13
+	sta PPUADDR
+	ldx #5
+.hiscore
+	lda <HISCORE,x
+	clc
+	adc #$C0
+	sta PPUDATA
+	dex
+	bpl .hiscore
+
+	; パレット
+	lda #low(tilepal_logo)
+	sta <PTR_L
+	lda #high(tilepal_logo)
+	sta <PTR_H
+	jsr PalLoad
+	lda <CHARA_NO
+	jsr SetCharaPal		; スプライトパレット上書き
+
+	; キャラプレビュー + カーソル
+	jsr TitleDrawChara
+
+	; BGM
+	lda #MUS_TITLE
+	jsr music_play
+
+	lda #1
+	sta <INITED
+	lda #2
+	sta <PPU_ON
+	rts
+
+TitleUpdate:
+	; SELECT/上下: メニュー切り替え
+	lda <PAD_TRG
+	and #PAD_SL|PAD_UP|PAD_DN
+	beq .nosel
+	lda <CURSOR
+	eor #1
+	sta <CURSOR
+.nosel
+	; B: キャラ変更
+	lda <PAD_TRG
+	and #PAD_B
+	beq .nochara
+	ldx <CHARA_NO
+	inx
+	cpx #5
+	bne .setchara
+	ldx #0
+.setchara
+	stx <CHARA_NO
+	lda <CHARA_NO
+	jsr SetCharaPal
+	lda #SE_SELECT
+	jsr sfx_play
+.nochara
+	; カーソル/キャラ描画
+	jsr TitleDrawChara
+
+	; START/A: 決定
+	lda <PAD_TRG
+	and #PAD_ST|PAD_A
+	beq .done
+	lda #SE_SELECT
+	jsr sfx_play
+	lda <CURSOR
+	bne .staff
+	lda #SC_GAME
+	jmp ChangeScene
+.staff
+	lda #SC_STAFF
+	jmp ChangeScene
+.done
+	rts
+
+; タイトルのキャラプレビューとカーソルを描く
+TitleDrawChara:
+	; キャラ (アニメつき)
+	lda <CHARA_NO
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a			; x32
+	clc
+	adc #$20
+	sta <T0
+	lda <FRAME_CNT
+	and #%00010000
+	beq .noanim
+	lda <T0
+	ora #$02
+	sta <T0
+.noanim
+	lda #%00000000
+	sta <T1
+	lda #%00000001
+	sta <T4
+	lda #0			; スプライト0
+	ldx #40
+	ldy #140
+	jsr SetSprite16
+	; カーソル (スプライト4)
+	lda <CURSOR
+	asl a
+	asl a
+	asl a
+	asl a			; x16
+	clc
+	adc #143
+	sta OAM_BUF+16		; y
+	lda #$0B
+	sta OAM_BUF+17		; tile
+	lda #%00000010		; パレット2
+	sta OAM_BUF+18
+	lda #76
+	sta OAM_BUF+19		; x
+	rts
+
+;==============================================================================
+; シーン: ゲーム本体
+;==============================================================================
+SceneGame:
+	lda <INITED
+	beq .init
+	jmp GameUpdate
+.init
+	; ---- 初期化 ----
+	lda #0
+	sta <PPU_ON
+	sta PPUMASK
+	sta <SCROLL_L
+	sta <SCROLL_H
+	sta <BUF_LEN
+	sta VBUF
+	sta <BUF_READY
+	sta <STAR_TIMER
+	jsr SpriteInit
+	bit PPUSTAT
+
+	; ステージ構築 (NT両面 + 属性 + 初期土管)
+	jsr StageBuild
+
+	; スコアクリア
+	ldx #5
+	lda #0
+.sc
+	sta <SCORE,x
+	dex
+	bpl .sc
+	lda #1
+	sta <SCORE_DIRTY
+
+	; アイテムクリア
+	lda #0
+	sta ITEM_ACT
+	sta ITEM_ACT+1
+
+	; 鳥初期化
+	lda #BIRD_Y_INIT
+	sta <BIRD_Y
+	lda #0
+	sta <BIRD_YF
+	sta <VEL_L
+	sta <VEL_H
+	sta <BIRD_ANIM
+	lda #GS_WAIT
+	sta <GAME_ST
+
+	; パレット: ステージBG + キャラ/UI/アイテム スプライト
+	ldx #0
+.palbg
+	lda PalStageBG,x
+	sta PAL_BUF,x
+	inx
+	cpx #16
+	bne .palbg
+	lda <CHARA_NO
+	jsr SetCharaPal		; PAL_DIRTYも立つ
+
+	; BGM
+	lda #MUS_STAGE
+	jsr music_play
+
+	lda #1
+	sta <INITED
+	lda #2
+	sta <PPU_ON
+	rts
+
+;------------------------------------------------------------------------------
+GameUpdate:
+	; B: キャラ変更 (いつでも)
+	lda <PAD_TRG
+	and #PAD_B
+	beq .nochara
+	ldx <CHARA_NO
+	inx
+	cpx #5
+	bne .setchara
+	ldx #0
+.setchara
+	stx <CHARA_NO
+	lda <CHARA_NO
+	jsr SetCharaPal
+.nochara
+
+	lda <GAME_ST
+	cmp #GS_WAIT
+	beq GameWait
+	cmp #GS_RUN
+	beq GameRun
+	jmp GameDead
+
+;------------------------------------------------------------------------------
+; 待機状態: 鳥はふわふわ, PUSH A 点滅
+;------------------------------------------------------------------------------
+GameWait:
+	; ふわふわ
+	lda <FRAME_CNT
+	lsr a
+	lsr a
+	lsr a
+	and #$07
+	tax
+	lda BobTbl,x
+	clc
+	adc #BIRD_Y_INIT-2
+	sta <BIRD_Y
+
+	; PUSH A 点滅表示
+	lda <FRAME_CNT
+	and #%00100000
+	bne .hidepusha
+	jsr DrawPushA
+	jmp .pushadone
+.hidepusha
+	jsr HidePushA
+.pushadone
+
+	; A で開始
+	lda <PAD_TRG
+	and #PAD_A
+	beq .noflap
+	lda #GS_RUN
+	sta <GAME_ST
+	jsr HidePushA
+	; 乱数に人間エントロピーを混ぜる
+	lda <RNG
+	eor <FRAME_CNT
+	ora #1
+	sta <RNG
+	jsr BirdFlap
+.noflap
+	jsr BirdDraw
+	jsr ItemsUpdate
+	lda <SCORE_DIRTY
+	beq .nodraw
+	jsr DrawScore
+.nodraw
+	rts
+
+;------------------------------------------------------------------------------
+; プレイ中
+;------------------------------------------------------------------------------
+GameRun:
+	; スクロール前進
+	inc <SCROLL_L
+	bne .noc
+	lda <SCROLL_H
+	eor #$01
+	sta <SCROLL_H
+.noc
+	; A: 羽ばたき
+	lda <PAD_TRG
+	and #PAD_A
+	beq .noflap
+	jsr BirdFlap
+.noflap
+	jsr BirdPhysics
+	; 地面?
+	lda <BIRD_Y
+	cmp #GROUND_Y
+	bcc .nofloor
+	jmp BirdDie
+.nofloor
+	jsr PipesUpdate
+	jsr ItemsUpdate
+	jsr CollisionCheck
+	; スター無敵タイマー
+	lda <STAR_TIMER
+	beq .nostar
+	dec <STAR_TIMER
+.nostar
+	jsr BirdDraw
+	lda <SCORE_DIRTY
+	beq .nodraw
+	jsr DrawScore
+.nodraw
+	rts
+
+;------------------------------------------------------------------------------
+; 死亡後の落下
+;------------------------------------------------------------------------------
+GameDead:
+	jsr BirdPhysics
+	lda <BIRD_Y
+	cmp #GROUND_Y+6
+	bcc .fall
+	lda #GROUND_Y+6
+	sta <BIRD_Y
+	jsr BirdDraw
+	lda #SC_OVER
+	jmp ChangeScene
+.fall
+	jsr BirdDraw
+	rts
+
+;------------------------------------------------------------------------------
+; 羽ばたき
+;------------------------------------------------------------------------------
+BirdFlap:
+	lda #FLAP_VEL_LO
+	sta <VEL_L
+	lda #FLAP_VEL_HI
+	sta <VEL_H
+	lda #SE_FLAP
+	jsr sfx_play
+	lda #8
+	sta <FLAP_HOLD
+	rts
+
+;------------------------------------------------------------------------------
+; 鳥の物理 (重力・速度・座標)
+;------------------------------------------------------------------------------
+BirdPhysics:
+	; vel += 重力
+	lda <VEL_L
+	clc
+	adc #GRAVITY
+	sta <VEL_L
+	lda <VEL_H
+	adc #0
+	sta <VEL_H
+	; 最大落下速度
+	bmi .noclamp		; 上昇中はそのまま
+	cmp #MAXFALL_HI
+	bcc .noclamp
+	lda #MAXFALL_HI
+	sta <VEL_H
+	lda #0
+	sta <VEL_L
+.noclamp
+	; Y += vel
+	lda <BIRD_YF
+	clc
+	adc <VEL_L
+	sta <BIRD_YF
+	lda <BIRD_Y
+	adc <VEL_H
+	sta <BIRD_Y
+	; 天井
+	cmp #240
+	bcs .ceil		; 負に回り込んだ
+	cmp #8
+	bcs .ok
+.ceil
+	lda #8
+	sta <BIRD_Y
+	lda #0
+	sta <VEL_L
+	sta <VEL_H
+.ok
+	rts
+
+;------------------------------------------------------------------------------
+; 鳥の描画
+;------------------------------------------------------------------------------
+BirdDraw:
+	; ベースタイル = $20 + キャラ番号*$20
+	lda <CHARA_NO
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc #$20
+	sta <T0
+	; 羽ばたきアニメ
+	lda <FLAP_HOLD
+	beq .noanim
+	dec <FLAP_HOLD
+	lda <T0
+	ora #$02		; 羽上げフレーム
+	sta <T0
+	jmp .pose
+.noanim
+	lda <FRAME_CNT
+	and #%00010000
+	beq .pose
+	lda <T0
+	ora #$02
+	sta <T0
+.pose
+	; 上昇中は上向きポーズ
+	lda <VEL_H
+	bpl .attr
+	lda <T0
+	ora #$04
+	sta <T0
+.attr
+	; 属性 (スター中は点滅でパレット切り替え)
+	lda <STAR_TIMER
+	beq .normal
+	lda <FRAME_CNT
+	and #%00000100
+	beq .normal
+	lda #%00000010
+	sta <T1
+	lda #%00000011
+	sta <T4
+	jmp .draw
+.normal
+	lda #%00000000
+	sta <T1
+	lda #%00000001
+	sta <T4
+.draw
+	lda #0			; スプライト0
+	ldx #BIRD_X
+	ldy <BIRD_Y
+	jsr SetSprite16
+	rts
+
+;------------------------------------------------------------------------------
+; 死亡処理
+;------------------------------------------------------------------------------
+BirdDie:
+	lda #GS_DEAD
+	sta <GAME_ST
+	jsr music_stop
+	lda #SE_HIT
+	jsr sfx_play
+	; 小さく跳ねてから落ちる
+	lda #$00
+	sta <VEL_L
+	lda #$FE
+	sta <VEL_H
+	rts
+
+;------------------------------------------------------------------------------
+; PUSH A 表示 (スプライト17-21, タイル$E0-$E4)
+;------------------------------------------------------------------------------
+DrawPushA:
+	ldx #0
+	lda #17
+	asl a
+	asl a
+	tay
+	lda #44
+	sta <T4
+.loop
+	lda #80
+	sta OAM_BUF,y
+	txa
+	clc
+	adc #$E0
+	sta OAM_BUF+1,y
+	lda #%00000010
+	sta OAM_BUF+2,y
+	lda <T4
+	sta OAM_BUF+3,y
+	clc
+	adc #8
+	sta <T4
+	tya
+	clc
+	adc #4
+	tay
+	inx
+	cpx #5
+	bne .loop
+	rts
+
+HidePushA:
+	lda #17
+	asl a
+	asl a
+	tax
+	lda #$FF
+	ldy #5
+.loop
+	sta OAM_BUF,x
+	inx
+	inx
+	inx
+	inx
+	dey
+	bne .loop
+	rts
+
+;------------------------------------------------------------------------------
+; 土管スロット更新 (リサイクル + 上下移動)
+;------------------------------------------------------------------------------
+PipesUpdate:
+	ldx #0
+.slot
+	; --- リサイクル フェーズ2 (残り2列の描画) ---
+	lda PIPE_RECYC,x
+	cmp #2
+	bne .zonechk
+	lda <BUF_LEN
+	cmp #100
+	bcs .move		; バッファ混雑: 次フレーム
+	lda #2
+	sta <DRAW_C0
+	lda #3
+	sta <DRAW_C1
+	txa
+	pha
+	jsr PipeSlotDrawBuf
+	pla
+	tax
+	lda #1
+	sta PIPE_RECYC,x
+	jmp .move
+.zonechk
+	; --- リサイクル判定: d = (scroll - slotX) & 511 が [40,47] ---
+	lda <SCROLL_L
+	sec
+	sbc SlotXLo,x
+	sta <T0
+	lda <SCROLL_H
+	sbc SlotXHi,x
+	and #$01
+	bne .outzone		; d >= 256
+	lda <T0
+	cmp #40
+	bcc .outzone
+	cmp #48
+	bcs .outzone
+	; ゾーン内
+	lda PIPE_RECYC,x
+	bne .move		; 既に再生成済み
+	; バッファ容量チェック
+	lda <BUF_LEN
+	cmp #60
+	bcs .move		; 今フレームは見送り(次フレーム再試行)
+	jsr PipeRecycle
+	jmp .move
+.outzone
+	lda #0
+	sta PIPE_RECYC,x
+.move
+	; --- 上下移動 ---
+	lda PIPE_ACT,x
+	beq .next
+	lda PIPE_MOV,x
+	beq .next
+	dec PIPE_CNT,x
+	bne .next
+	; バッファ容量チェック (移動再描画は73byte必要)
+	lda <BUF_LEN
+	cmp #160
+	bcc .domove
+	inc PIPE_CNT,x		; 次フレーム再試行
+	jmp .next
+.domove
+	lda #MOVE_PERIOD
+	sta PIPE_CNT,x
+	; 端で方向反転
+	lda PIPE_GAP,x
+	cmp #GAP_MIN+1
+	bcs .notmin
+	lda #1
+	sta PIPE_DIR,x
+.notmin
+	lda PIPE_GAP,x
+	cmp #GAP_MAX
+	bcc .notmax
+	lda #$FF
+	sta PIPE_DIR,x
+.notmax
+	lda PIPE_GAP,x
+	clc
+	adc PIPE_DIR,x
+	sta PIPE_GAP,x
+	; 変更範囲のみ再描画: 行[gap-3, gap+GAP_ROWS+2]
+	sec
+	sbc #3
+	sta <T4
+	lda PIPE_GAP,x
+	clc
+	adc #GAP_ROWS+2
+	sta <T5
+	lda #0
+	sta <DRAW_C0
+	lda #3
+	sta <DRAW_C1
+	txa
+	pha
+	jsr PipeSlotDrawBuf
+	pla
+	tax
+.next
+	inx
+	cpx #4
+	beq .done
+	jmp .slot
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; 土管再生成 IN X:スロット (X保存)
+;------------------------------------------------------------------------------
+PipeRecycle:
+	lda #2
+	sta PIPE_RECYC,x	; フェーズ2(残り列)を予約
+	lda #1
+	sta PIPE_ACT,x
+	lda #0
+	sta PIPE_PASS,x
+	jsr PipeNewGap
+	; スコア10以上なら 1/2 の確率で移動土管に
+	lda #0
+	sta PIPE_MOV,x
+	lda <SCORE+1
+	ora <SCORE+2
+	ora <SCORE+3
+	beq .nomove
+	jsr RngStep
+	lda <RNG
+	and #$01
+	beq .nomove
+	lda #1
+	sta PIPE_MOV,x
+	lda #MOVE_PERIOD
+	sta PIPE_CNT,x
+	jsr RngStep
+	lda <RNG
+	and #$02
+	beq .dirdown
+	lda #$FF
+	sta PIPE_DIR,x
+	jmp .nomove
+.dirdown
+	lda #1
+	sta PIPE_DIR,x
+.nomove
+	; 前半2列の再描画 (行0-25) 残りは次フレーム(フェーズ2)
+	lda #0
+	sta <T4
+	lda #25
+	sta <T5
+	lda #0
+	sta <DRAW_C0
+	lda #1
+	sta <DRAW_C1
+	txa
+	pha
+	jsr PipeSlotDrawBuf
+	pla
+	tax
+	; アイテム出現 (75%)
+	jsr RngStep
+	lda <RNG
+	and #$03
+	cmp #$03
+	beq .noitem
+	jsr ItemSpawn
+.noitem
+	rts
+
+;------------------------------------------------------------------------------
+; アイテム出現 IN X:土管スロット (X保存)
+;------------------------------------------------------------------------------
+ItemSpawn:
+	; 空きアイテムスロット探し
+	ldy #0
+	lda ITEM_ACT
+	beq .found
+	ldy #1
+	lda ITEM_ACT+1
+	beq .found
+	rts			; 空きなし
+.found
+	; X座標 = スロットX + 64 (次の土管との中間)
+	lda SlotXLo,x
+	clc
+	adc #64
+	sta ITEM_XL,y
+	lda SlotXHi,x
+	adc #0
+	and #$01
+	sta ITEM_XH,y
+	; Y座標 = 48 + (rng&127), 150超なら-80
+	jsr RngStep
+	lda <RNG
+	and #$7F
+	clc
+	adc #48
+	cmp #150
+	bcc .yok
+	sec
+	sbc #80
+.yok
+	sta ITEM_Y,y
+	; 種類: 0-8=コイン(0) 9-12=チェリー(2) 13-15=スター(1)
+	jsr RngStep
+	lda <RNG
+	and #$0F
+	cmp #9
+	bcc .coin
+	cmp #13
+	bcc .cherry
+	lda #1			; スター
+	jmp .settype
+.cherry
+	lda #2
+	jmp .settype
+.coin
+	lda #0
+.settype
+	sta ITEM_TYPE,y
+	lda #0
+	sta ITEM_ARM,y
+	lda #1
+	sta ITEM_ACT,y
+	rts
+
+;------------------------------------------------------------------------------
+; アイテム更新・描画・取得判定
+;------------------------------------------------------------------------------
+ItemsUpdate:
+	lda #0
+	sta <ITEM_IDX
+.item
+	ldy <ITEM_IDX
+	lda ITEM_ACT,y
+	bne .active
+	jmp .hide
+.active
+	; 画面X = (X - scroll) & 511
+	lda ITEM_XL,y
+	sec
+	sbc <SCROLL_L
+	sta <T5			; 画面x
+	lda ITEM_XH,y
+	sbc <SCROLL_H
+	and #$01
+	beq .onscreen
+	; 画面外(右側): まだ未入場ならアーム
+	lda #1
+	sta ITEM_ARM,y
+	jmp .hide
+.onscreen
+	; 画面内相当でも未入場なら表示しない (生成直後の左端出現防止)
+	lda ITEM_ARM,y
+	bne .armed
+	jmp .hide
+.armed
+	; 左に流れ去ったら消す (画面左端16px以内)
+	lda <T5
+	cmp #16
+	bcs .visible
+	lda #0
+	sta ITEM_ACT,y
+	jmp .hide
+.visible
+	; 取得判定: |sx - BIRD_X| < 13 && |iy - birdY| < 14
+	lda <T5
+	sec
+	sbc #BIRD_X
+	bcs .dxp
+	eor #$FF
+	clc
+	adc #1
+.dxp
+	cmp #13
+	bcs .draw
+	lda ITEM_Y,y
+	sec
+	sbc <BIRD_Y
+	bcs .dyp
+	eor #$FF
+	clc
+	adc #1
+.dyp
+	cmp #14
+	bcs .draw
+	; ---- 取得! ----
+	lda #0
+	sta ITEM_ACT,y
+	lda ITEM_TYPE,y
+	beq .getcoin
+	cmp #1
+	beq .getstar
+	; チェリー: +20点
+	lda #SE_ITEM
+	jsr sfx_play
+	lda #2
+	ldx #1
+	jsr ScoreAdd
+	jmp .hide
+.getcoin
+	; コイン: +5点
+	lda #SE_ITEM
+	jsr sfx_play
+	lda #5
+	ldx #0
+	jsr ScoreAdd
+	jmp .hide
+.getstar
+	; スター: 無敵!
+	lda #SE_STAR
+	jsr sfx_play
+	lda #255
+	sta <STAR_TIMER
+	jmp .hide
+.draw
+	; タイル決定
+	lda ITEM_TYPE,y
+	beq .tcoin
+	cmp #1
+	beq .tstar
+	lda #$EC		; チェリー
+	jmp .st
+.tstar
+	lda #$EA		; スター
+	jmp .st
+.tcoin
+	lda <FRAME_CNT
+	and #%00010000
+	beq .c0
+	lda #$E8		; コイン(横向き)
+	jmp .st
+.c0
+	lda #$E6		; コイン(正面)
+.st
+	sta <T0
+	lda #%00000011		; パレット3
+	sta <T1
+	sta <T4
+	; SetSprite16呼び出し: A=22+idx*4, X=画面x, Y=アイテムY
+	lda <ITEM_IDX
+	asl a
+	asl a
+	clc
+	adc #22
+	sta <T6
+	ldy <ITEM_IDX
+	lda ITEM_Y,y
+	tay
+	ldx <T5
+	lda <T6
+	jsr SetSprite16
+	jmp .next
+.hide
+	lda <ITEM_IDX
+	asl a
+	asl a
+	clc
+	adc #22
+	jsr HideSprite16
+.next
+	inc <ITEM_IDX
+	lda <ITEM_IDX
+	cmp #2
+	beq .done
+	jmp .item
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; 土管との当たり判定 + 通過スコア
+;   f = (scroll + BIRD_X+12 - slotX) & 511
+;   f<=40:横重なり → ゲート内かチェック / 41<=f<=100:通過済みチェック
+;------------------------------------------------------------------------------
+CollisionCheck:
+	; W = scroll + (BIRD_X+12)
+	lda <SCROLL_L
+	clc
+	adc #BIRD_X+12
+	sta <T2			; WL
+	lda <SCROLL_H
+	adc #0
+	sta <T3			; WH
+	ldx #0
+.slot
+	lda PIPE_ACT,x
+	bne .chk
+	jmp .next
+.chk
+	lda <T2
+	sec
+	sbc SlotXLo,x
+	sta <T0			; f_lo
+	lda <T3
+	sbc SlotXHi,x
+	and #$01
+	beq .inrange
+	jmp .next		; f >= 256
+.inrange
+	lda <T0
+	cmp #41
+	bcs .passchk
+	; ---- 横重なり: ゲート内チェック ----
+	lda <STAR_TIMER
+	beq .mortal
+	jmp .next		; スター無敵
+.mortal
+	lda PIPE_GAP,x
+	asl a
+	asl a
+	asl a
+	sta <T1			; gap*8
+	lda <BIRD_Y
+	clc
+	adc #4
+	cmp <T1			; birdY+4 < gap*8 → 上の土管にヒット
+	bcc .die
+	lda <T1
+	clc
+	adc #GAP_ROWS*8
+	sta <T1			; ゲート下端
+	lda <BIRD_Y
+	clc
+	adc #13
+	cmp <T1
+	bcs .die		; birdY+13 >= 下端 → 下の土管にヒット
+	jmp .next
+.die
+	jmp BirdDie
+.passchk
+	; ---- 通過スコア ----
+	lda <T0
+	cmp #101
+	bcs .next
+	lda PIPE_PASS,x
+	bne .next
+	lda #1
+	sta PIPE_PASS,x
+	txa
+	pha
+	lda #SE_POINT
+	jsr sfx_play
+	lda #1
+	ldx #0
+	jsr ScoreAdd
+	pla
+	tax
+.next
+	inx
+	cpx #4
+	beq .done
+	jmp .slot
+.done
+	rts
+
+;==============================================================================
+; シーン: ゲームオーバー
+;==============================================================================
+SceneOver:
+	lda <INITED
+	beq .init
+	jmp OverUpdate
+.init
+	; ---- 初期化 (描画はONのまま, オーバーレイ表示) ----
+	; ハイスコア更新
+	ldx #5
+.hicmp
+	lda <SCORE,x
+	cmp <HISCORE,x
+	bcc .nohigh
+	bne .newhigh
+	dex
+	bpl .hicmp
+	jmp .nohigh
+.newhigh
+	ldx #5
+.hicopy
+	lda <SCORE,x
+	sta <HISCORE,x
+	dex
+	bpl .hicopy
+.nohigh
+	; GAMEOVERロゴをオーバーレイ (タイル$44, 9x3, 画面中央)
+	; スクロール列 = scrollX>>3
+	lda <SCROLL_L
+	lsr a
+	lsr a
+	lsr a
+	sta <T5
+	lda <SCROLL_H
+	and #$01
+	beq .nthi
+	lda <T5
+	ora #$20
+	sta <T5
+.nthi
+	lda #0
+	sta <T6			; k
+.ovcol
+	; 列 = (scrollcol + 11 + k) & 63
+	lda <T5
+	clc
+	adc #11
+	clc
+	adc <T6
+	and #$3F
+	sta <T7
+	; バッファに縦3タイルのエントリを追加
+	ldx <BUF_LEN
+	lda #3
+	sta VBUF,x
+	inx
+	; addrH = $80 | $20 | NT | 1 (行11 → 11>>3=1)
+	lda <T7
+	and #$20
+	lsr a
+	lsr a
+	lsr a
+	ora #$A1		; $80|$20|1
+	sta VBUF,x
+	inx
+	; addrL = (11&7)<<5 | col = $60 | col
+	lda <T7
+	and #$1F
+	ora #$60
+	sta VBUF,x
+	inx
+	; タイル3枚
+	lda #$44
+	clc
+	adc <T6
+	sta VBUF,x
+	inx
+	clc
+	adc #$10
+	sta VBUF,x
+	inx
+	clc
+	adc #$10
+	sta VBUF,x
+	inx
+	lda #0
+	sta VBUF,x
+	stx <BUF_LEN
+	inc <T6
+	lda <T6
+	cmp #9
+	bne .ovcol
+	lda #1
+	sta <BUF_READY
+
+	; ジングル
+	lda #MUS_OVER
+	jsr music_play
+
+	lda #240
+	sta <SCR_TIMER
+	lda #1
+	sta <INITED
+	rts
+
+OverUpdate:
+	; START/Aでタイトル, または時間切れ
+	lda <PAD_TRG
+	and #PAD_ST|PAD_A
+	bne .totitle
+	dec <SCR_TIMER
+	bne .stay
+.totitle
+	lda #SC_TITLE
+	jmp ChangeScene
+.stay
+	rts
+
+;==============================================================================
+; シーン: スタッフロール
+;==============================================================================
+SceneStaff:
+	lda <INITED
+	beq .init
+	jmp StaffUpdate
+.init
+	lda #0
+	sta <PPU_ON
+	sta PPUMASK
+	sta <SCROLL_L
+	sta <SCROLL_H
+	jsr SpriteInit
+	lda #%10001000
+	sta PPUCTRL
+	bit PPUSTAT
+	; NT0を空タイルで埋める
+	lda #$20
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	lda #TILE_SKY
+	ldx #$C0
+	ldy #3
+.fill1
+	sta PPUDATA
+	dex
+	bne .fill1
+.fill2
+	sta PPUDATA
+	dex
+	bne .fill2
+	dey
+	bne .fill2
+	; 属性: 全部パレット1
+	lda #%01010101
+	ldx #64
+.attr
+	sta PPUDATA
+	dex
+	bne .attr
+	; テキスト配置
+	jsr StaffPrintAll
+	; パレット
+	lda #low(tilepal_logo)
+	sta <PTR_L
+	lda #high(tilepal_logo)
+	sta <PTR_H
+	jsr PalLoad
+	; BGM
+	lda #MUS_STAFF
+	jsr music_play
+	lda #1
+	sta <INITED
+	lda #2
+	sta <PPU_ON
+	rts
+
+StaffUpdate:
+	lda <PAD_TRG
+	and #PAD_A|PAD_ST
+	beq .stay
+	lda #SE_SELECT
+	jsr sfx_play
+	lda #SC_TITLE
+	jmp ChangeScene
+.stay
+	rts
+
+; スタッフロールの全行を描く
+StaffPrintAll:
+	lda #low(StrStaff1)
+	sta <PTR_L
+	lda #high(StrStaff1)
+	sta <PTR_H
+	lda #3
+	sta <T4
+	lda #5
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff2)
+	sta <PTR_L
+	lda #high(StrStaff2)
+	sta <PTR_H
+	lda #5
+	sta <T4
+	lda #7
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff3)
+	sta <PTR_L
+	lda #high(StrStaff3)
+	sta <PTR_H
+	lda #3
+	sta <T4
+	lda #11
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff4)
+	sta <PTR_L
+	lda #high(StrStaff4)
+	sta <PTR_H
+	lda #5
+	sta <T4
+	lda #13
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff5)
+	sta <PTR_L
+	lda #high(StrStaff5)
+	sta <PTR_H
+	lda #3
+	sta <T4
+	lda #17
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff6)
+	sta <PTR_L
+	lda #high(StrStaff6)
+	sta <PTR_H
+	lda #5
+	sta <T4
+	lda #19
+	sta <T5
+	jsr TextPrint
+	lda #low(StrStaff7)
+	sta <PTR_L
+	lda #high(StrStaff7)
+	sta <PTR_H
+	lda #6
+	sta <T4
+	lda #25
+	sta <T5
+	jsr TextPrint
+	rts
+
+;==============================================================================
+; データ (バンク1)
+;==============================================================================
+	.bank 1
+	.org $A000
+
+; --- サウンドドライバ ---
+	.include "src/sound.asm"
+
+; --- 土管スロットのX座標 (NT空間, 128px間隔) ---
+SlotXLo:	.db $00,$80,$00,$80
+SlotXHi:	.db $00,$00,$01,$01
+; 土管スロットの属性バイトアドレス (行20-23のセル)
+PipeAttrHi:	.db $23,$23,$27,$27
+PipeAttrLo:	.db $E8,$EC,$E8,$EC
+
+; --- 待機中のふわふわテーブル ---
+BobTbl:		.db 0,1,2,3,4,3,2,1
+
+; --- ステージBGパレット (空を水色に) ---
+PalStageBG:	.db $21,$0F,$09,$2A	; 空/土管/草
+		.db $21,$23,$27,$15	; 地面
+		.db $21,$3A,$30,$27	; 雲/ビル
+		.db $21,$07,$17,$26	; 地下
+
+; --- キャラクタパレット (原作より: 4行/キャラ, 行0=上段 行2=下段に使用) ---
+CharaPalTbl:	.db $21,$20,$3F,$17	; 翔子
+		.db $21,$20,$3F,$17
+		.db $21,$20,$3F,$17
+		.db $21,$20,$3F,$17
+		.db $21,$30,$07,$37	; マミタス
+		.db $21,$30,$07,$37
+		.db $21,$30,$07,$37
+		.db $21,$30,$07,$37
+		.db $21,$30,$3F,$24	; クリオネコ
+		.db $21,$30,$3F,$24
+		.db $21,$30,$3F,$24
+		.db $21,$30,$3F,$24
+		.db $21,$25,$27,$11	; 女のコ
+		.db $21,$36,$27,$15
+		.db $21,$36,$3F,$15
+		.db $21,$36,$19,$15
+		.db $3F,$36,$24,$06	; 翔子まりお
+		.db $3F,$36,$24,$06
+		.db $3F,$36,$24,$2C
+		.db $3F,$36,$24,$2C
+
+; --- 文字列 (';'終端) ---
+StrGameStart:	.db "GAME START;"
+StrStaffRoll:	.db "STAFF ROLL;"
+StrCharaHint:	.db "PUSH <B> CHANGE BIRD;"
+StrCopyright:	.db "2014 2026 SAYONARI;"
+StrHi:		.db "HI;"
+StrStaff1:	.db "DEVELOPED BY:;"
+StrStaff2:	.db "RYOTA NISHIMURA <SAYONARI>;"
+StrStaff3:	.db "REIMPLEMENTED 2026 BY:;"
+StrStaff4:	.db "SAYONARI AND CLAUDE;"
+StrStaff5:	.db "SPECIAL THANKS:;"
+StrStaff6:	.db "SHOKO NAKAGAWA;"
+StrStaff7:	.db "PUSH <A> TO TITLE;"
+
+; --- ロゴ画面パレット/ネームテーブル ---
+tilepal_logo:	.incbin "assets/FamiBird_logo.dat"
+bglogo:		.incbin "assets/logo.nam"
+
+;==============================================================================
+; バンク2 ($C000-) 音楽データ
+;==============================================================================
+	.bank 2
+	.org $C000
+	.include "build/songs.asm"
+	.include "build/dpcm_tables.asm"
+
+;==============================================================================
+; バンク3 ($E000-) DPCMサンプル + 割り込みベクタ
+;==============================================================================
+	.bank 3
+	.org $E000
+dpcm_start:
+	.incbin "build/dpcm.bin"
+
+	.org $FFFA
+	.dw NMI
+	.dw Reset
+	.dw IRQ
+
+;==============================================================================
+; バンク4 CHR-ROM
+;==============================================================================
+	.bank 4
+	.org $0000
+	.incbin "build/FamiBird2.chr"

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>FamilyBird 2 — 再実装レポート</title>
+<style>
+  body { font-family: "Hiragino Sans", sans-serif; max-width: 1080px; margin: 24px auto; padding: 0 16px; background:#1a1e26; color:#e8e8e8; line-height: 1.7; }
+  h1 { color:#7ec8ff; border-bottom: 3px solid #7ec8ff; padding-bottom: 8px; }
+  h2 { color:#ffd166; margin-top: 2em; border-left: 6px solid #ffd166; padding-left: 10px; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #445; padding: 6px 10px; text-align: left; }
+  th { background: #2a3040; color:#9fd0ff; }
+  tr:nth-child(even) { background: #222836; }
+  .shots { display:flex; flex-wrap: wrap; gap:12px; }
+  .shots figure { margin:0; }
+  .shots img { width: 340px; image-rendering: pixelated; border: 2px solid #445; border-radius: 4px; }
+  figcaption { text-align:center; color:#aab; font-size: 0.9em; margin-top:4px; }
+  code { background:#2a3040; padding: 2px 6px; border-radius: 4px; color:#9fe8a0; }
+  .ok { color:#7dde8a; font-weight:bold; }
+  audio { width: 300px; vertical-align: middle; }
+  .note { background:#26304a; border-left:4px solid #7ec8ff; padding:10px 14px; border-radius:4px; }
+</style>
+</head>
+<body>
+<h1>🐤 FamilyBird 2 — 解析と再実装レポート</h1>
+<p>原作 <b>FamilyBird</b>（2014年，nesasm製）を解析し，問題点をすべて解消したクリーン再実装版
+<code>FamilyBird2</code> を作成しました．
+ROM: <code>_sayonariGame/FamilyBird2/build/FamilyBird2.nes</code>（NROM-256, 32KB PRG + 8KB CHR）</p>
+
+<h2>1. 原作の問題点（解析結果）</h2>
+<table>
+<tr><th>問題</th><th>内容</th><th>本作での解決</th></tr>
+<tr><td>NMI内で全ロジック実行</td><td>VBlank割り込みハンドラ＝メインループ．メインスレッドは空の無限ループ（memo.txtでも自認）</td><td>メインループにロジックを移し，NMIは OAM DMA／VRAMバッファ転送／パレット転送／スクロール設定／サウンドのみ</td></tr>
+<tr><td>描画中のVRAM書き込み</td><td>シーン切替時にVBlank外で$2006/$2007へ書き込み → 画面化け・カクつき</td><td>プレイ中はすべて$0300のバッファ経由でVBlank内転送．シーン構築は描画OFFで実施し，VBlank内で表示ON</td></tr>
+<tr><td>VRAM読み出しによる当たり判定</td><td>描画中に$2007を読んでタイル番号で判定 → 不安定・バグの温床</td><td>座標計算による数学的判定（土管ゲート矩形 vs 鳥のヒットボックス）</td></tr>
+<tr><td>ミラーリング設定ミス</td><td>水平ミラーリング指定で横スクロール（「ネームテーブル下部バグ」の一因）</td><td>垂直ミラーリング＋2画面ネームテーブルで無限横スクロール</td></tr>
+<tr><td>ジャンプテーブル物理</td><td>40個の固定テーブルで挙動が不自然</td><td>8.8固定小数の速度・重力・終端速度（本家フラッピー風の手応え）</td></tr>
+<tr><td>土管が固定2本</td><td>1画面をループするだけ．「カウンタ＝経過秒数」</td><td>4スロット循環で無限生成（画面外左でゲート位置を再抽選して再描画）．得点＝通過数＋アイテム</td></tr>
+</table>
+
+<h2>2. 新要素</h2>
+<ul>
+  <li><b>上下に動く土管</b> — スコア10以降，1/2の確率で出現．ゲートが上下に移動（変更行のみ差分再描画でVBlank負荷を最小化）</li>
+  <li><b>アイテム</b> — 🪙コイン(+5点)／🍒チェリー(+20点)／⭐スター（約4秒間 無敵！点滅しながら土管を貫通）．原作CHRの空き領域に新規ドット絵を追加</li>
+  <li><b>ハイスコア</b> — タイトル画面に表示（電源断まで保持）</li>
+  <li><b>キャラ変更</b> — 原作の5キャラ（翔子・マミタス・クリオネコ・女のコ・翔子まりお）をBボタンでいつでも切替（原作の隠し要素を昇格）</li>
+  <li>SHOKOロゴ画面・スタッフロール・GameOverロゴなど原作の要素はすべて継承</li>
+</ul>
+
+<h2>3. 音楽 — 自作ドライバ「SAYODRV」</h2>
+<p>NSD.Libに代えて，5ch（矩形波×2・三角波・ノイズ・<b>DPCM</b>）の自作サウンドドライバを実装．
+音量エンベロープ音色，$4003書き込みスキップ（位相リセットノイズ対策），SFX2系統の音楽優先制御つき．
+楽曲はMML風テキスト（<code>songs/*.mml</code>）→ 自作コンパイラ（<code>tools/songc.py</code>）でデータ化．
+チャンネル間のループ長不一致はビルドエラーで検出します．</p>
+<p class="note">🥁 <b>マリオ3/カービィ風の打楽器</b>はDPCMサンプルで実装：キック・タム（高/低，SMB3のティンバレス風ピッチ下降）・スネアを
+Pythonで音響合成し1-bitデルタ変調（<code>tools/dpcm_gen.py</code>）．ROMの$E000に配置しています．</p>
+<table>
+<tr><th>曲</th><th>内容</th><th>試聴（テストレンダラ出力）</th></tr>
+<tr><td>タイトル</td><td>あたたかい8小節ループ</td><td><audio controls src="build/bgm_title.wav"></audio></td></tr>
+<tr><td>ステージ</td><td>アップテンポ16小節，DPCMキック＆タム</td><td><audio controls src="build/bgm_stage.wav"></audio></td></tr>
+<tr><td>ゲームオーバー</td><td>下降ジングル＋ロータム</td><td><audio controls src="build/bgm_gameover.wav"></audio></td></tr>
+<tr><td>スタッフロール</td><td>やさしいワルツ</td><td><audio controls src="build/bgm_staffroll.wav"></audio></td></tr>
+</table>
+<p>SFX: 羽ばたき／得点コイン音／衝突／アイテム取得／スター／決定 の6種．</p>
+
+<h2>4. スクリーンショット</h2>
+<div class="shots">
+  <figure><img src="build/shot_logo.png"><figcaption>SHOKOロゴ（原作継承）</figcaption></figure>
+  <figure><img src="build/shot_title.png"><figcaption>タイトル（ハイスコア・キャラプレビュー）</figcaption></figure>
+  <figure><img src="build/shot_play2.png"><figcaption>プレイ中（無限スクロール・移動土管）</figcaption></figure>
+  <figure><img src="build/shot_star.png"><figcaption>スター出現</figcaption></figure>
+  <figure><img src="build/shot_gameover2.png"><figcaption>ゲームオーバー（オーバーレイ表示）</figcaption></figure>
+  <figure><img src="build/shot_staff2.png"><figcaption>スタッフロール</figcaption></figure>
+  <figure><img src="build/items_preview.png" style="width:400px"><figcaption>追加アイテム（コイン2フレーム・スター・チェリー）</figcaption></figure>
+</div>
+
+<h2>5. 検証</h2>
+<p>検証用に<b>ヘッドレスNESエミュレータをPythonで自作</b>（<code>test/emu.py</code>：6502全公式命令＋最小PPU/APU）し，以下を自動テストしました．</p>
+<table>
+<tr><th>テスト</th><th>結果</th></tr>
+<tr><td>起動→ロゴ→タイトル→ゲーム→ゲームオーバー→タイトル→スタッフロールの全遷移</td><td class="ok">PASS</td></tr>
+<tr><td>自動操縦プレイ：土管通過で+1点，コインで+5点，スコア10で移動土管出現</td><td class="ok">PASS</td></tr>
+<tr><td>スター取得→無敵タイマー→土管本体を無傷で貫通</td><td class="ok">PASS</td></tr>
+<tr><td>耐久6000フレーム（リサイクル47回・全スロット移動・スクロール一周多数）でクラッシュ／バッファ溢れなし</td><td class="ok">PASS</td></tr>
+<tr><td>VBlank内VRAM転送量：最大61バイト/フレーム（予算内．土管再生成は2フレーム分割）</td><td class="ok">PASS</td></tr>
+<tr><td>スコア表示スプライトとメモリ上の値の一致（86点時）</td><td class="ok">PASS</td></tr>
+<tr><td>BGMのAPU出力解析：作曲どおりの音程（G5-C6-A5系列＋C2/G2ベース），DPCM発音確認</td><td class="ok">PASS</td></tr>
+<tr><td>全曲チャンネル間ループ長の一致</td><td class="ok">PASS</td></tr>
+</table>
+
+<h2>6. 遊び方 / ビルド</h2>
+<ul>
+<li>実機系エミュレータで遊ぶ：<code>Mesen.app</code>で <code>build/FamilyBird2.nes</code> を開く（すでに起動済みのはずです）</li>
+<li>操作：<b>A</b>=羽ばたき，<b>B</b>=キャラ変更，<b>SELECT/上下</b>=メニュー，<b>START</b>=決定</li>
+<li>再ビルド：<code>./build.sh</code>（CHRパッチ→DPCM生成→楽曲コンパイル→nesasm）</li>
+</ul>
+<p class="note">本プロジェクトは private_work 配下（私的領域）のため，Google Drive へのアーカイブ同期は行っていません．必要でしたらお知らせください．</p>
+</body>
+</html>

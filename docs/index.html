@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>FamilyBird 2</title>
+<meta name="description" content="FamilyBird 2 — ファミコン用フラッピーバード系ゲームをブラウザでプレイ">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+:root {
+  --fc-red:    #9e1b1b;   /* ファミコン本体レッド */
+  --fc-red-dk: #6e0f10;
+  --fc-cream:  #f2e6c9;   /* 本体クリーム */
+  --fc-cream-dk:#dcCC9f;
+  --fc-gold:   #c8a24a;
+  --fc-black:  #1a1412;
+  --sky:       #63adff;
+  --pipe:      #35a03a;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: "DotGothic16", monospace;
+  background:
+    repeating-linear-gradient(45deg, rgba(0,0,0,.06) 0 2px, transparent 2px 8px),
+    linear-gradient(180deg, var(--fc-red) 0%, var(--fc-red-dk) 100%);
+  background-attachment: fixed;
+  color: var(--fc-cream);
+  min-height: 100vh;
+}
+.wrap { max-width: 860px; margin: 0 auto; padding: 20px 12px 60px; }
+
+/* ===== カセットラベル風ヘッダ ===== */
+header {
+  background: var(--fc-cream);
+  color: var(--fc-black);
+  border-radius: 6px;
+  border: 4px solid var(--fc-black);
+  box-shadow: 0 8px 0 rgba(0,0,0,.35);
+  padding: 18px 20px 14px;
+  margin-bottom: 26px;
+  position: relative;
+  overflow: hidden;
+}
+header::before {
+  content:"";
+  position:absolute; inset:0 0 auto 0; height: 12px;
+  background: repeating-linear-gradient(90deg, var(--fc-red) 0 24px, var(--fc-gold) 24px 48px);
+}
+header h1 {
+  font-family: "Press Start 2P", "DotGothic16", monospace;
+  font-size: clamp(20px, 5.4vw, 40px);
+  letter-spacing: 2px;
+  margin-top: 10px;
+  color: var(--fc-red);
+  text-shadow: 3px 3px 0 var(--fc-gold);
+}
+header .sub {
+  display:flex; justify-content: space-between; flex-wrap: wrap; gap: 4px 16px;
+  margin-top: 8px; font-size: 14px; color:#4a3b2a;
+}
+header .cart-no { font-family:"Press Start 2P", monospace; font-size: 10px; }
+
+/* ===== CRT テレビ ===== */
+.tv {
+  background: #2b2320;
+  border: 4px solid var(--fc-black);
+  border-radius: 14px;
+  padding: 18px 18px 12px;
+  box-shadow: inset 0 0 0 3px #4a3d35, 0 10px 0 rgba(0,0,0,.35);
+}
+.screen-frame { position: relative; background: #000; border-radius: 8px; overflow: hidden; }
+canvas#screen {
+  display: block;
+  width: 100%;
+  aspect-ratio: 256 / 240;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  background: #000;
+}
+.scanlines {
+  position:absolute; inset:0; pointer-events:none;
+  background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px);
+  mix-blend-mode: multiply;
+}
+.glow { position:absolute; inset:0; pointer-events:none;
+  background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,.42) 100%); }
+
+#boot {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap: 18px;
+  background: #0d0a09; cursor: pointer; z-index: 5;
+}
+#boot .power {
+  font-family:"Press Start 2P", monospace; font-size: clamp(12px,3vw,20px);
+  color: var(--fc-cream); border: 3px solid var(--fc-gold);
+  padding: 14px 26px; border-radius: 4px;
+  animation: blink 1.1s steps(2) infinite;
+}
+#boot .hint { color:#9a8b78; font-size: 14px; }
+@keyframes blink { 50% { opacity: .25; } }
+.tv-bottom { display:flex; justify-content:space-between; align-items:center; margin-top:10px; }
+.tv-brand { font-family:"Press Start 2P", monospace; font-size:9px; color:#8d7d6c; letter-spacing:1px; }
+.tv-btns { display:flex; gap:10px; }
+.tv-btns button {
+  font-family:"DotGothic16", monospace; font-size: 13px;
+  background:#4a3d35; color:var(--fc-cream); border:2px solid var(--fc-black);
+  border-radius: 4px; padding: 4px 12px; cursor:pointer;
+}
+.tv-btns button:active { transform: translateY(2px); }
+
+/* ===== コントローラ (タッチ) ===== */
+.pad {
+  margin-top: 18px;
+  background: var(--fc-gold);
+  background: linear-gradient(180deg,#d9b45e,#c8a24a);
+  border: 4px solid var(--fc-black);
+  border-radius: 10px;
+  box-shadow: 0 8px 0 rgba(0,0,0,.35);
+  padding: 16px 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px; align-items: center;
+  user-select: none; -webkit-user-select: none; touch-action: manipulation;
+}
+.dpad { display:grid; grid-template-columns: repeat(3, 44px); grid-template-rows: repeat(3, 44px); }
+.dpad button {
+  background:#2b2320; border:2px solid var(--fc-black); color:#c8b8a4;
+  font-size:16px; cursor:pointer; touch-action: none;
+}
+.dpad .up   { grid-area:1/2; border-radius:6px 6px 0 0; }
+.dpad .left { grid-area:2/1; border-radius:6px 0 0 6px; }
+.dpad .mid  { grid-area:2/2; pointer-events:none; }
+.dpad .right{ grid-area:2/3; border-radius:0 6px 6px 0; }
+.dpad .down { grid-area:3/2; border-radius:0 0 6px 6px; }
+.center-btns { display:flex; flex-direction:column; align-items:center; gap:8px; }
+.ss { display:flex; gap:14px; }
+.ss button {
+  font-family:"DotGothic16", monospace; font-size:12px;
+  background:#2b2320; color:var(--fc-cream);
+  border:2px solid var(--fc-black); border-radius: 14px;
+  padding: 6px 16px; cursor:pointer; touch-action: none;
+}
+.brandline { font-family:"Press Start 2P",monospace; font-size:8px; color:#6e0f10; }
+.ab { display:flex; gap:14px; }
+.ab button {
+  width: 62px; height: 62px; border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #c8433f, var(--fc-red) 60%, var(--fc-red-dk));
+  border: 3px solid var(--fc-black);
+  color:#fff; font-family:"Press Start 2P",monospace; font-size:15px;
+  cursor:pointer; touch-action:none;
+  box-shadow: 0 4px 0 rgba(0,0,0,.4);
+}
+.ab button:active, .dpad button:active, .ss button:active { transform: translateY(3px); box-shadow:none; }
+
+/* ===== 取説セクション ===== */
+section {
+  background: var(--fc-cream);
+  color: var(--fc-black);
+  border: 4px solid var(--fc-black);
+  border-radius: 6px;
+  box-shadow: 0 8px 0 rgba(0,0,0,.35);
+  padding: 18px 20px;
+  margin-top: 26px;
+}
+section h2 {
+  font-size: 20px;
+  background: var(--fc-red);
+  color: var(--fc-cream);
+  display:inline-block;
+  padding: 3px 14px;
+  border-radius: 3px;
+  margin-bottom: 12px;
+  transform: rotate(-1deg);
+}
+section p, section li { line-height: 1.9; font-size: 15px; }
+table.keys { border-collapse: collapse; margin-top: 6px; width:100%; max-width: 520px; }
+table.keys td { border: 2px solid var(--fc-black); padding: 6px 12px; font-size: 14px; }
+table.keys td.k { background: #2b2320; color: var(--fc-cream); font-family:"Press Start 2P",monospace; font-size: 10px; text-align:center; width: 40%; }
+.items-img { width:100%; max-width: 420px; image-rendering: pixelated; border:3px solid var(--fc-black); border-radius:4px; margin-top:8px; }
+.itemtbl { margin-top: 10px; }
+.itemtbl td { border:2px solid var(--fc-black); padding:6px 12px; font-size:14px; }
+.shots2 { display:flex; gap: 12px; flex-wrap: wrap; margin-top: 8px; }
+.shots2 img { width: min(100%, 320px); image-rendering: pixelated; border:3px solid var(--fc-black); border-radius:4px; }
+footer { text-align:center; margin-top: 34px; font-size: 13px; color: #f2e6c9cc; line-height:2; }
+footer a { color: var(--fc-cream); }
+.gh {
+  display:inline-block; margin-top: 6px; font-size: 14px;
+  background: var(--fc-black); color: var(--fc-cream);
+  padding: 8px 18px; border-radius: 20px; text-decoration:none;
+  border: 2px solid var(--fc-gold);
+}
+@media (max-width: 560px) {
+  .pad { grid-template-columns: auto 1fr auto; padding: 12px; gap: 8px; }
+  .dpad { grid-template-columns: repeat(3,38px); grid-template-rows: repeat(3,38px); }
+  .ab button { width: 54px; height: 54px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>FAMILYBIRD 2</h1>
+  <div class="sub">
+    <span>中川翔子Lv.29お祝い企画 (2014) — 2026 リメイク</span>
+    <span class="cart-no">SAYONARI-2026-FB2</span>
+  </div>
+</header>
+
+<div class="tv">
+  <div class="screen-frame">
+    <canvas id="screen" width="256" height="240"></canvas>
+    <div class="scanlines"></div>
+    <div class="glow"></div>
+    <div id="boot">
+      <div class="power">▶ POWER ON</div>
+      <div class="hint">クリック / タップでゲーム開始（音が出ます）</div>
+    </div>
+  </div>
+  <div class="tv-bottom">
+    <span class="tv-brand">FAMICOM STYLE CRT-2026</span>
+    <div class="tv-btns">
+      <button id="btn-reset" title="リセット">RESET</button>
+      <button id="btn-mute">♪ ON</button>
+    </div>
+  </div>
+</div>
+
+<div class="pad" id="pad">
+  <div class="dpad">
+    <button class="up"    data-btn="UP">▲</button>
+    <button class="left"  data-btn="LEFT">◀</button>
+    <button class="mid"></button>
+    <button class="right" data-btn="RIGHT">▶</button>
+    <button class="down"  data-btn="DOWN">▼</button>
+  </div>
+  <div class="center-btns">
+    <div class="brandline">FamilyBird 2</div>
+    <div class="ss">
+      <button data-btn="SELECT">SELECT</button>
+      <button data-btn="START">START</button>
+    </div>
+  </div>
+  <div class="ab">
+    <button data-btn="B">B</button>
+    <button data-btn="A">A</button>
+  </div>
+</div>
+
+<section>
+  <h2>あそびかた</h2>
+  <p><b>A ボタン（羽ばたき）だけ</b>のかんたん操作！ マリオ風の土管にぶつからないように，どこまでも飛び続けよう．
+  土管を1本くぐるたびに <b>+1点</b>．スコア10をこえると<b>上下に動く土管</b>があらわれるぞ．</p>
+  <table class="keys">
+    <tr><td class="k">X / SPACE / ↑クリック</td><td>Aボタン（羽ばたき・決定）</td></tr>
+    <tr><td class="k">Z</td><td>Bボタン（キャラチェンジ！5人から選べる）</td></tr>
+    <tr><td class="k">ENTER</td><td>START（ゲーム開始）</td></tr>
+    <tr><td class="k">SHIFT / ↑↓</td><td>SELECT（メニュー選択）</td></tr>
+  </table>
+  <p style="margin-top:8px">ゲーム画面をクリック／タップしても羽ばたけます．ゲームパッドにも対応．</p>
+</section>
+
+<section>
+  <h2>アイテム</h2>
+  <img class="items-img" src="img/items_preview.png" alt="コイン・スター・チェリー">
+  <table class="itemtbl">
+    <tr><td>🪙 コイン</td><td>+5点</td></tr>
+    <tr><td>⭐ スター</td><td>むてき！ 点滅しながら土管を貫通できる</td></tr>
+    <tr><td>🍒 チェリー</td><td>+20点</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>スクリーンショット</h2>
+  <div class="shots2">
+    <img src="img/shot_title.png" alt="タイトル画面">
+    <img src="img/shot_play2.png" alt="プレイ画面">
+  </div>
+</section>
+
+<section>
+  <h2>このゲームについて</h2>
+  <p>2014年にファミコン実機用に開発した自作ゲーム <b>FamilyBird</b>（アセンブリ製）を，
+  2026年にクリーン再実装したものです．音楽は自作5chサウンドドライバ「SAYODRV」＋
+  DPCMサンプリング打楽器（キック・タム・スネア）で鳴っています．
+  ブラウザ上では <a href="https://github.com/bfirsh/jsnes">jsnes</a>（MITライセンス）でNES ROMをそのまま実行しています．</p>
+  <p>原案: Flappy Bird (Dong Nguyen) ／ 開発: <a href="http://sayonari.com/">sayonari</a> ＆ Claude ／
+  Special Thanks: 中川翔子さん</p>
+  <p>非商用のファンメイド作品です．</p>
+</section>
+
+<footer>
+  <a class="gh" href="https://github.com/sayonari/familybird2">⚙ GitHub でソースを見る</a>
+  <br>© 2014-2026 sayonari — Powered by jsnes
+</footer>
+</div>
+
+<script src="jsnes.min.js"></script>
+<script>
+(function(){
+  var canvas = document.getElementById('screen');
+  var ctx = canvas.getContext('2d');
+  var imageData = ctx.createImageData(256, 240);
+  var buf = new ArrayBuffer(imageData.data.length);
+  var buf8 = new Uint8ClampedArray(buf);
+  var buf32 = new Uint32Array(buf);
+  for (var i = 0; i < buf32.length; i++) buf32[i] = 0xff000000;
+
+  var AUDIO_BUFFERING = 512;
+  var SAMPLE_COUNT = 4 * 1024;
+  var SAMPLE_MASK = SAMPLE_COUNT - 1;
+  var audio_samples_L = new Float32Array(SAMPLE_COUNT);
+  var audio_samples_R = new Float32Array(SAMPLE_COUNT);
+  var audio_write_cursor = 0, audio_read_cursor = 0;
+  var muted = false;
+
+  var nes = null;
+  function makeNES(sampleRate){
+    return new jsnes.NES({
+      sampleRate: sampleRate,
+      onFrame: function(fb){
+        for (var i = 0; i < 256*240; i++) buf32[i] = 0xff000000 | fb[i];
+      },
+      onAudioSample: function(l, r){
+        audio_samples_L[audio_write_cursor] = l;
+        audio_samples_R[audio_write_cursor] = r;
+        audio_write_cursor = (audio_write_cursor + 1) & SAMPLE_MASK;
+      },
+    });
+  }
+
+  // ---- ROM 読み込み ----
+  var romData = null;
+  fetch('FamilyBird2.nes').then(function(r){ return r.arrayBuffer(); }).then(function(ab){
+    var bytes = new Uint8Array(ab);
+    var s = '';
+    for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    romData = s;
+  });
+
+  // ---- 起動 ----
+  var running = false;
+  var audioCtx = null;
+  function powerOn(){
+    if (running || !romData) return;
+    running = true;
+    document.getElementById('boot').style.display = 'none';
+
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    nes = makeNES(audioCtx.sampleRate);   // 実サンプルレートに合わせる(音程ズレ防止)
+    var scriptNode = audioCtx.createScriptProcessor(AUDIO_BUFFERING, 0, 2);
+    scriptNode.onaudioprocess = function(e){
+      var dstL = e.outputBuffer.getChannelData(0);
+      var dstR = e.outputBuffer.getChannelData(1);
+      var len = dstL.length;
+      // 足りないぶんはエミュを進めて生成 (音声駆動で約60fps)
+      var guard = 0;
+      while ((((audio_write_cursor - audio_read_cursor) & SAMPLE_MASK) < len) && guard++ < 4) {
+        nes.frame();
+      }
+      for (var i = 0; i < len; i++) {
+        var v = muted ? 0 : 1;
+        dstL[i] = v * audio_samples_L[audio_read_cursor];
+        dstR[i] = v * audio_samples_R[audio_read_cursor];
+        audio_read_cursor = (audio_read_cursor + 1) & SAMPLE_MASK;
+      }
+    };
+    scriptNode.connect(audioCtx.destination);
+    window.__keepAlive = scriptNode;
+
+    nes.loadROM(romData);
+    requestAnimationFrame(loop);
+
+    // タブ非表示中は一時停止
+    document.addEventListener('visibilitychange', function(){
+      if (!audioCtx) return;
+      if (document.hidden) audioCtx.suspend(); else audioCtx.resume();
+    });
+  }
+
+  // ---- 映像ループ (音声側でフレームは進む; 描画のみ) ----
+  function loop(){
+    imageData.data.set(buf8);
+    ctx.putImageData(imageData, 0, 0);
+    requestAnimationFrame(loop);
+  }
+
+  document.getElementById('boot').addEventListener('click', powerOn);
+
+  // ---- 入力 ----
+  var C = jsnes.Controller;
+  var MAP = { A: C.BUTTON_A, B: C.BUTTON_B, START: C.BUTTON_START, SELECT: C.BUTTON_SELECT,
+              UP: C.BUTTON_UP, DOWN: C.BUTTON_DOWN, LEFT: C.BUTTON_LEFT, RIGHT: C.BUTTON_RIGHT };
+  function down(name){ if (running && nes) nes.buttonDown(1, MAP[name]); }
+  function up(name){
+    // 極端に短いタップでもNES側の1フレームに必ず拾われるよう解放を遅らせる
+    setTimeout(function(){ if (running && nes) nes.buttonUp(1, MAP[name]); }, 45);
+  }
+
+  var KEYS = {
+    'KeyX': 'A', 'Space': 'A',
+    'KeyZ': 'B',
+    'Enter': 'START',
+    'ShiftLeft': 'SELECT', 'ShiftRight': 'SELECT',
+    'ArrowUp': 'UP', 'ArrowDown': 'DOWN', 'ArrowLeft': 'LEFT', 'ArrowRight': 'RIGHT'
+  };
+  window.addEventListener('keydown', function(e){
+    if (KEYS[e.code]) { e.preventDefault(); down(KEYS[e.code]); if(!running) powerOn(); }
+  });
+  window.addEventListener('keyup', function(e){
+    if (KEYS[e.code]) { e.preventDefault(); up(KEYS[e.code]); }
+  });
+
+  // 画面タップ = A
+  canvas.parentElement.addEventListener('pointerdown', function(e){
+    if (!running) return;
+    e.preventDefault(); down('A');
+  });
+  window.addEventListener('pointerup', function(){ up('A'); });
+
+  // タッチコントローラ
+  document.querySelectorAll('#pad button[data-btn]').forEach(function(b){
+    var name = b.dataset.btn;
+    function press(e){ e.preventDefault(); if(!running) powerOn(); down(name); }
+    function release(e){ e.preventDefault(); up(name); }
+    b.addEventListener('pointerdown', press);
+    b.addEventListener('pointerup', release);
+    b.addEventListener('pointerleave', release);
+    b.addEventListener('pointercancel', release);
+    b.addEventListener('contextmenu', function(e){ e.preventDefault(); });
+  });
+
+  // ゲームパッド
+  var padState = {};
+  function pollGamepad(){
+    var gps = navigator.getGamepads ? navigator.getGamepads() : [];
+    for (var gi = 0; gi < gps.length; gi++) {
+      var gp = gps[gi];
+      if (!gp) continue;
+      var st = {
+        A: gp.buttons[0] && gp.buttons[0].pressed || gp.buttons[1] && gp.buttons[1].pressed,
+        B: gp.buttons[2] && gp.buttons[2].pressed || gp.buttons[3] && gp.buttons[3].pressed,
+        START: gp.buttons[9] && gp.buttons[9].pressed,
+        SELECT: gp.buttons[8] && gp.buttons[8].pressed,
+        UP: gp.buttons[12] && gp.buttons[12].pressed || gp.axes[1] < -0.5,
+        DOWN: gp.buttons[13] && gp.buttons[13].pressed || gp.axes[1] > 0.5,
+        LEFT: gp.buttons[14] && gp.buttons[14].pressed || gp.axes[0] < -0.5,
+        RIGHT: gp.buttons[15] && gp.buttons[15].pressed || gp.axes[0] > 0.5
+      };
+      for (var k in st) {
+        if (st[k] && !padState[k]) { down(k); if(!running) powerOn(); }
+        if (!st[k] && padState[k]) up(k);
+        padState[k] = st[k];
+      }
+      break;
+    }
+    requestAnimationFrame(pollGamepad);
+  }
+  requestAnimationFrame(pollGamepad);
+
+  // TVボタン
+  document.getElementById('btn-reset').addEventListener('click', function(){
+    if (running && romData) nes.loadROM(romData);
+  });
+  document.getElementById('btn-mute').addEventListener('click', function(){
+    muted = !muted;
+    this.textContent = muted ? '♪ OFF' : '♪ ON';
+  });
+})();
+</script>
+</body>
+</html>

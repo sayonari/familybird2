@@ -1,0 +1,15 @@
+# タイトルBGM: あたたかい8小節ループ
+song title
+speed 7
+@sq1: @softlead o5 l4
+@sq1: e g a g | >c2< g4 e4 | f a g f | e2 d2
+@sq1: e g a g | >c2 d4 c4< | >e4 d4 c4< a4 | g1
+@sq2: @lead2 o4 l2
+@sq2: c e | e g | f a | e d
+@sq2: c e | e g | g2 f2 | d1
+@tri: @tri o3 l2
+@tri: c g | c g | f >c< | c g
+@tri: c g | c e | f g | g1
+@noi: l4
+@noi: r h r h | r h r h | r h r h | r h r h
+@noi: r h r h | r h r h | r h r h | r h r h16 h16 h8

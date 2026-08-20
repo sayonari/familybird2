@@ -1,0 +1,11 @@
+# スタッフロール: やさしいワルツ
+song staffroll
+speed 8
+@sq1: @softlead o5 l4
+@sq1: e2 g4 | a2 g4 | f2 d4 | e2. | d2 f4 | e2 g4 | d2 <b4 | >c2.
+@sq2: @lead2 o4 l4
+@sq2: r e e | r f f | r d d | r e e | r d d | r e e | r d g | r e g
+@tri: @tri o3 l4
+@tri: c2. | f2. | g2. | c2. | g2. | c2. | g2. | c2.
+@noi: l4
+@noi: r h h | r h h | r h h | r h h | r h h | r h h | r h h | r h h

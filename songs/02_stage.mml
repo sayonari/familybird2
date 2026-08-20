@@ -1,0 +1,33 @@
+# ステージBGM: アップテンポ 16小節 (SMB3風タム&キック入り)
+song stage
+speed 6
+# --- メロディ ---
+@sq1: @lead o5 l8
+@sq1: e g >c< g a >c< a g | e g >c< g >d c< b g | f a >c< a b >d c< a | >e d c< a g4 r8 g
+@sq1: e g >c< g a >c< a g | e g >c< g >d c< b g | f a >c< a b >d c< a | >e d e d c4< r4
+@sq1: a >c e c< a >c< a e | g b >d< b g b g d | f a >c< a f a f c | e g b g >c4< r8 g
+@sq1: a >c e c< a >c< a e | g b >d< b g b g d | f a >c< a f a f c | >c< b a b >c4 d4<
+# --- 裏打ちコード ---
+@sq2: @pluck o4 l8
+@sq2: r e r g r e r g | r e r g r e r g | r f r a r f r a | r d r g r d r g
+@sq2: r e r g r e r g | r e r g r e r g | r f r a r f r a | r e r g r d r g
+@sq2: r c r e r c r e | r d r g r d r g | r f r a r f r a | r e r g r e r g
+@sq2: r c r e r c r e | r d r g r d r g | r f r a r f r a | r d r f r d r g
+# --- ベース ---
+@tri: @tri o3 l8
+@tri: c r g r c r g g | c r g r c r g g | f r >c< r f r >c c< | g r >d< r g r >d d<
+@tri: c r g r c r g g | c r g r c r g g | f r >c< r f r >c c< | c r g r g r g g
+@tri: a r >e< r a r >e e< | g r >d< r g r >d d< | f r >c< r f r >c c< | c r g r c r g g
+@tri: a r >e< r a r >e e< | g r >d< r g r >d d< | f r >c< r f r >c c< | g r >d< r g g >d d<
+# --- ハイハット/スネア ---
+@noi: l8
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | s16 s16 s16 s16 s8 s8 H4 H4
+# --- DPCM (キック/タム) ---
+@dpc: l8
+@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
+@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
+@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
+@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | t8 t8 T8 T8 t16 t16 T16 T16 k4
