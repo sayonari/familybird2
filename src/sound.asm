@@ -417,9 +417,16 @@ mus_ch_envelope:
 	cpx #0
 	bne .p2w
 	sta $4000
-	jmp .pvib
+	jmp .pfx
 .p2w
 	sta $4004
+.pfx
+	; 高速アルペジオ (疑似和音) があればビブラートより優先
+	ldy snd_inst,x
+	lda inst_arp,y
+	beq .pvib
+	jsr snd_arpeggio
+	rts
 .pvib
 	jsr snd_vibrato
 .pdone
@@ -489,6 +496,45 @@ snd_vibrato:
 
 vib_tbl1:	.db 0,1,1,0,0,$FF,$FF,0
 vib_tbl2:	.db 0,1,2,1,0,$FF,$FE,$FF
+
+;------------------------------------------------------------------------------
+; 高速アルペジオ: 1フレームごとに和音構成音を巡回 (FAMICOMPO風疑似和音)
+;  IN X:ch(0/1)  A:アルペジオ種別(1=メジャー 2=マイナー 3=オクターブ)
+;  高音域(周期上位が基音と同じ範囲)でのみ音程変更する (位相リセット音回避)
+;------------------------------------------------------------------------------
+snd_arpeggio:
+	; オフセット = arp_tblN[tick&3]
+	sec
+	sbc #1
+	asl a
+	asl a			; 種別*4
+	sta <SND_ENVP
+	lda snd_tick
+	and #$03
+	clc
+	adc <SND_ENVP
+	tay
+	lda arp_tbl,y		; 半音オフセット
+	clc
+	adc snd_note,x
+	tay			; 対象ノート
+	lda note_table_hi,y
+	cmp snd_perhi,x
+	bne .skip		; 上位バイトが変わるなら書かない(低音域の保険)
+	lda note_table_lo,y
+	cpx #0
+	bne .w1
+	sta $4002
+	rts
+.w1
+	sta $4006
+.skip
+	rts
+
+arp_tbl:	.db 0,4,7,4		; メジャー
+		.db 0,3,7,3		; マイナー
+		.db 0,12,0,12		; オクターブ
+		.db 0,5,9,5		; sus4風
 
 ; --- エンベロープ現在値を得て進める IN X:ch OUT A:音量(0-15) ---
 mus_env_value:

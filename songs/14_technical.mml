@@ -1,0 +1,30 @@
+# ステージBGM10: 技巧デモ曲 (完全オリジナル / FAMICOMPO風テクニック全部盛り)
+#   A minor / 180BPM
+#   技法: 高速アルペジオ疑似和音(sq2), 32分ラン, セルフエコー, オクターブベース
+song technical
+speed 5
+@sq1: @lead o5 l16
+@sq1: a b >c d< e8 r8 a b >c d e d c< b | f g a >c< a8 r8 f g a >c d c< a g
+@sq1: e f g a g8 r8 e f g a b a g f | e g+ b >d c< b g+ e e8 r8 g+8 b8
+@sq1: @leadv a8. b16 >c8. d16 e4< r4 | @echo a8. b16 >c8. d16 e4< r4
+@sq1: @run e32 f32 g32 a32 b32 >c32 d32 e32 f32 e32 d32 c32< b32 a32 g32 f32 e32 f32 g32 a32 e8 a8 >c8 e8< | @leadv a4 e8 a8 >c4< a4
+@sq2: @arpm o4 l1
+@sq2: a | @arpM o5 f1
+@sq2: c1 | @arpM e1
+@sq2: @arpm o4 a1 | @arpM o5 f1
+@sq2: @arpM c2 @arpm e2 | @arpm o4 a1
+@tri: @tri o3 l8
+@tri: a >a< a >a< a >a< a >a< | f >f< f >f< f >f< f >f<
+@tri: c >c< c >c< c >c< c >c< | e >e< e >e< e >e< e >e<
+@tri: a >a< a >a< a >a< a >a< | f >f< f >f< f >f< f >f<
+@tri: c >c< e >e< a a e e | a >a< a >a< a a >a a<
+@noi: l8
+@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h
+@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h s16 s16 s16 s16 s H
+@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h
+@noi: s16 s16 s16 s16 s16 s16 s16 s16 h h s s | s16 s16 s16 s16 s s s s H H
+@dpc: l8
+@dpc: k k16 k16 s r k k16 k16 s r | k k16 k16 s r k k16 k16 s r
+@dpc: k k16 k16 s r k k16 k16 s r | k k16 k16 s r t t T T
+@dpc: k r s r k r s r | k r s r k r s r
+@dpc: k k k k t t T T | k k16 k16 s r t16 t16 T16 T16 k s

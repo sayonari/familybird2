@@ -91,6 +91,11 @@ MUS_CUTE	.equ	6
 MUS_STAR	.equ	7
 MUS_HERO	.equ	8
 MUS_SWING	.equ	9
+MUS_TURK	.equ	10
+MUS_ENT	.equ	11
+MUS_CANCAN	.equ	12
+MUS_KOROB	.equ	13
+MUS_TECH	.equ	14
 
 ;------------------------------------------------------------------------------
 ; ゼロページ変数
@@ -141,6 +146,7 @@ PAL_DIRTY	.equ	$42	; パレット転送要求
 STAGE_BGM	.equ	$3F	; 今プレイのステージ曲番号
 GOLDSCORE	.equ	$39	; ハイスコア更新中フラグ(スコア金色表示)
 TITLE_MODE	.equ	$2C	; タイトル状態 0=通常 1=隠しスクロール中 2=隠し部屋
+COMBO		.equ	$24	; コイン連続取得コンボ (0-4でキャップ)
 IDLE_CNT	.equ	$2D	; タイトル放置カウンタ (4フレームごと+1)
 SECRET_GIFT	.equ	$2E	; 隠し部屋からの開始 = スター無敵スタート
 SCROLL_Y	.equ	$2F	; Yスクロール (タイトル隠し演出用)
@@ -1735,6 +1741,7 @@ SceneGame:
 	sta <PAUSED
 	sta <NEWREC
 	sta <GOLDSCORE
+	sta <COMBO
 	ldx #4
 .pclr
 	sta PART_LIFE,x
@@ -1752,10 +1759,10 @@ SceneGame:
 	lda <CHARA_NO
 	jsr SetCharaPal		; PAL_DIRTYも立つ
 
-	; BGM: 5曲からランダム選曲
+	; BGM: 10曲からランダム選曲
 	jsr RngStep
 	lda <RNG
-	and #$07
+	and #$0F
 	tax
 	lda StageBgmTbl,x
 	sta <STAGE_BGM
@@ -1848,6 +1855,7 @@ GameWait:
 	lda <SCORE_DIRTY
 	beq .nodraw
 	jsr DrawScore
+	jsr DrawGauge
 .nodraw
 	rts
 
@@ -1923,6 +1931,7 @@ GameRun:
 	beq .nodraw
 	jsr ChkGold
 	jsr DrawScore
+	jsr DrawGauge
 .nodraw
 	rts
 
@@ -1945,6 +1954,166 @@ ChkGold:
 .yes
 	lda #1
 	sta <GOLDSCORE
+	rts
+
+;------------------------------------------------------------------------------
+; スコアがしきい値以上か IN Y:十の位 A:一の位 OUT C=1:以上
+;------------------------------------------------------------------------------
+ScoreGE:
+	sta <T6
+	sty <T7
+	lda <SCORE+2
+	ora <SCORE+3
+	ora <SCORE+4
+	ora <SCORE+5
+	bne .ge
+	lda <SCORE+1
+	cmp <T7
+	bcc .lt
+	bne .ge
+	lda <SCORE
+	cmp <T6
+	bcc .lt
+.ge
+	sec
+	rts
+.lt
+	clc
+	rts
+
+;------------------------------------------------------------------------------
+; ランクゲージ描画 (スプライト35=ランク数字, 36-40=5セルバー)
+;------------------------------------------------------------------------------
+DrawGauge:
+	; ランク判定: >=100:4  >=50:3  >=20:2  >=5:1  else:0
+	ldy #10
+	lda #0
+	jsr ScoreGE
+	bcc .r3
+	lda #4
+	jmp .rset
+.r3
+	ldy #5
+	lda #0
+	jsr ScoreGE
+	bcc .r2
+	lda #3
+	jmp .rset
+.r2
+	ldy #2
+	lda #0
+	jsr ScoreGE
+	bcc .r1
+	lda #2
+	jmp .rset
+.r1
+	ldy #0
+	lda #5
+	jsr ScoreGE
+	bcc .r0
+	lda #1
+	jmp .rset
+.r0
+	lda #0
+.rset
+	sta <T3			; ランク(0-4)
+	; ランク数字スプライト (#35)
+	ldx #140		; 35*4
+	lda #12
+	sta OAM_BUF,x
+	lda <T3
+	clc
+	adc #$C1		; '1'〜'5'
+	sta OAM_BUF+1,x
+	lda #%00000010		; UI白
+	sta OAM_BUF+2,x
+	lda #8
+	sta OAM_BUF+3,x
+	; バー5セル (#36-40)
+	lda <T3
+	cmp #4
+	bcs .allfull
+	; テーブル位置 = ランク*10
+	asl a
+	asl a
+	asl a
+	sta <T5
+	lda <T3
+	asl a
+	clc
+	adc <T5
+	sta <T5			; rank*10
+	lda #0
+	sta <T4			; セル番号
+.cell
+	lda <T4
+	asl a
+	clc
+	adc <T5
+	tay
+	lda RankCellTbl+1,y	; 一の位
+	pha
+	lda RankCellTbl,y	; 十の位
+	tay
+	pla
+	jsr ScoreGE
+	lda #$FE		; 満セル
+	bcs .tile
+	lda #$FF		; 空セル
+.tile
+	pha
+	lda <T4
+	clc
+	adc #36
+	asl a
+	asl a
+	tax
+	lda #12
+	sta OAM_BUF,x
+	pla
+	sta OAM_BUF+1,x
+	lda #%00000011		; アイテムパレット(金)
+	sta OAM_BUF+2,x
+	lda <T4
+	asl a
+	asl a
+	asl a
+	clc
+	adc #20
+	sta OAM_BUF+3,x
+	inc <T4
+	lda <T4
+	cmp #5
+	bne .cell
+	rts
+.allfull
+	; ランク5: 全部満タン
+	lda #0
+	sta <T4
+.fcell
+	lda <T4
+	clc
+	adc #36
+	asl a
+	asl a
+	tax
+	lda #12
+	sta OAM_BUF,x
+	lda #$FE
+	sta OAM_BUF+1,x
+	lda #%00000011
+	sta OAM_BUF+2,x
+	lda <T4
+	asl a
+	asl a
+	asl a
+	clc
+	adc #20
+	sta OAM_BUF+3,x
+	inc <T4
+	lda <T4
+	cmp #5
+	bne .fcell
 	rts
 
 ;------------------------------------------------------------------------------
@@ -2114,6 +2283,8 @@ BirdDraw:
 BirdDie:
 	lda #GS_DEAD
 	sta <GAME_ST
+	lda #0
+	sta <COMBO
 	jsr music_stop
 	lda #SE_HIT
 	jsr sfx_play
@@ -2491,6 +2662,12 @@ ItemsUpdate:
 	bcs .visible
 	lda #0
 	sta ITEM_ACT,y
+	; コインを取り逃したらコンボ終了
+	lda ITEM_TYPE,y
+	bne .misok
+	lda #0
+	sta <COMBO
+.misok
 	jmp .hide
 .visible
 	; 取得判定: |sx - BIRD_X| < 13 && |iy - birdY| < 14
@@ -2503,7 +2680,9 @@ ItemsUpdate:
 	adc #1
 .dxp
 	cmp #13
-	bcs .draw
+	bcc .dychk
+	jmp .draw
+.dychk
 	lda ITEM_Y,y
 	sec
 	sbc <BIRD_Y
@@ -2513,7 +2692,9 @@ ItemsUpdate:
 	adc #1
 .dyp
 	cmp #14
-	bcs .draw
+	bcc .pickup
+	jmp .draw
+.pickup
 	; ---- 取得! ----
 	lda #0
 	sta ITEM_ACT,y
@@ -2541,12 +2722,34 @@ ItemsUpdate:
 	jsr ScoreAdd
 	jmp .hide
 .getcoin
-	; コイン: +5点
+	; コイン: コンボで価値上昇 (5/10/15/20点)
+	lda <COMBO
+	cmp #4
+	bcs .cmax
+	inc <COMBO
+.cmax
+	lda <COMBO
+	cmp #4
+	bcc .cse
+	lda #SE_STAR		; 最大コンボはキラキラ音
+	jsr sfx_play
+	jmp .cadd
+.cse
 	lda #SE_ITEM
 	jsr sfx_play
-	lda #5
+.cadd
+	ldy <COMBO
+	lda ComboOnes,y
+	beq .cten
 	ldx #0
 	jsr ScoreAdd
+.cten
+	ldy <COMBO
+	lda ComboTens,y
+	beq .cdone
+	ldx #1
+	jsr ScoreAdd
+.cdone
 	jmp .hide
 .getstar
 	; スター: 無敵! 専用曲へ
@@ -3291,14 +3494,25 @@ SlotXHi:	.db $00,$00,$01,$01
 PipeAttrHi:	.db $23,$23,$27,$27
 PipeAttrLo:	.db $E8,$EC,$E8,$EC
 
-; --- ステージBGM候補 (8エントリ, rng&7で引く) ---
+; --- ステージBGM候補 (16エントリ, rng&15で引く) ---
 StageBgmTbl:	.db MUS_STAGE, MUS_IDOL, MUS_CUTE, MUS_HERO, MUS_SWING
-		.db MUS_STAGE, MUS_IDOL, MUS_HERO
+		.db MUS_TURK, MUS_ENT, MUS_CANCAN, MUS_KOROB, MUS_TECH
+		.db MUS_STAGE, MUS_TURK, MUS_CANCAN, MUS_KOROB, MUS_IDOL, MUS_TECH
 
 ; --- キャラ別性能 (翔子/マミタス/クリオネコ/女のコ/翔子まりお) ---
 CharGravity:	.db $30,$22,$3E,$2C,$36
 CharFlapLo:	.db $40,$A0,$00,$60,$E0
 CharFlapHi:	.db $FD,$FD,$FD,$FD,$FC
+
+; --- コンボボーナス (一の位, 十の位) index=コンボ数0-4 ---
+ComboOnes:	.db 0,5,0,5,0
+ComboTens:	.db 0,0,1,1,2
+
+; --- ランクゲージ: 各ランク5セルのしきい値 (十の位,一の位) ---
+RankCellTbl:	.db 0,1, 0,2, 0,3, 0,4, 0,5	; ランク1 (0-4点)
+		.db 0,8, 1,1, 1,4, 1,7, 2,0	; ランク2 (5-19点)
+		.db 2,6, 3,2, 3,8, 4,4, 5,0	; ランク3 (20-49点)
+		.db 6,0, 7,0, 8,0, 9,0, 9,9	; ランク4 (50-99点)
 
 ; --- 十の位 -> パレット位相 ---
 Mod3Tbl:	.db 0,1,2,0,1,2,0,1,2,0
@@ -3432,6 +3646,9 @@ StrSec8:	.db "? ? ? ? ?;"
 ; --- ロゴ画面パレット/ネームテーブル ---
 tilepal_logo:	.incbin "assets/FamiBird_logo.dat"
 bglogo:		.incbin "assets/logo.nam"
+
+; --- バンク2/3に入りきらない楽曲ストリーム ---
+	.include "build/songs3.asm"
 
 ;==============================================================================
 ; バンク2 ($C000-) 音楽データ

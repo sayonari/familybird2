@@ -111,6 +111,26 @@ SPARK_BIG = [
 "...1....",
 "........",
 ]
+BAR_FULL = [
+"22222222",
+"21111112",
+"21111112",
+"21111112",
+"21111112",
+"21111112",
+"22222222",
+"........",
+]
+BAR_EMPTY = [
+"22222222",
+"2......2",
+"2......2",
+"2......2",
+"2......2",
+"2......2",
+"22222222",
+"........",
+]
 SPARK_SMALL = [
 "........",
 "........",
@@ -143,6 +163,8 @@ def main():
     put16(data, 0xEC, CHERRY)
     put8(data, 0xEE, SPARK_BIG)
     put8(data, 0xEF, SPARK_SMALL)
+    put8(data, 0xFE, BAR_FULL)
+    put8(data, 0xFF, BAR_EMPTY)
     open(DST,'wb').write(data)
     print("CHR patched ->", DST)
 

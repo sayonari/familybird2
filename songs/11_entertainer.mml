@@ -1,0 +1,29 @@
+# ステージBGM7: エンターテイナー (S.ジョプリン, 1917年没, パブリックドメイン) アレンジ
+#   C major / 150BPM / ラグタイム
+song entertainer
+speed 6
+@sq1: @lead o5 l16
+@sq1: <d d+ e> c^8 <e> r c^8 <e> r c8. | c d d+ e c d e^8 <b> d c4 r
+@sq1: <d d+ e> c^8 <e> r c^8 <e> r c8. | c d d+ e c d e^8 <b> d c4 r
+@sq1: e8 d16 c16 <a8> r8 <a+8> r8 <b8> r8 | c d e c d e^8 c d e^8 c8 r
+@sq1: c8 d16 e16 e16 d16 c16 d16 e8 c8 d8 e8 | c d d+ e c d e^8 <b> d c4 r
+@sq2: @pluck o4 l8
+@sq2: r e r g r e r g | r e r g r g r g
+@sq2: r e r g r e r g | r e r g r g r g
+@sq2: r a r >c< r f r a | r e r g r e r g
+@sq2: r f r a r e r g | r e r g r g r g
+@tri: @tri o3 l8
+@tri: c r g r c r g r | c r g r g r c r
+@tri: c r g r c r g r | c r g r g r c r
+@tri: f r >c< r <b- r> b r | c r g r c r g r
+@tri: f r a r c r g r | c r g r g r c r
+@noi: l8
+@noi: h h s h h h s h | h h s h h h s h
+@noi: h h s h h h s h | h h s h s16 s16 s s H
+@noi: h h s h h h s h | h h s h h h s h
+@noi: h h s h h h s h | s16 s16 s16 s16 s s s s H H
+@dpc: l8
+@dpc: k r s r k r s r | k r s r k r s r
+@dpc: k r s r k r s r | k r s r t T k s
+@dpc: k r s r k r s r | k r s r k r s r
+@dpc: k r s r k r s r | k r s r t T k s

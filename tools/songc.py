@@ -26,25 +26,29 @@ NOISE_DRUMS = {
 DPCM_DRUMS = {'k':0, 't':1, 'T':2, 's':3}
 
 # 音色定義 (duty, エンベロープ)  $FF=最後の値を保持
-# (名前, duty, ビブラート深さ0-2, エンベロープ)
+# (名前, duty, ビブラート深さ0-2, アルペジオ0-4, エンベロープ)
 INSTRUMENTS = [
-    ('lead',   0b10, 0, [13,12,11,10,10,9,9,8,8,8,7,7,7,6,6,6]),   # メインリード
-    ('lead2',  0b01, 0, [10,9,8,8,7,7,7,6,6,6,5,5,5]),             # サブ/ハモリ
-    ('pluck',  0b00, 0, [12,9,6,4,3,2,1,0]),                       # 短いプラック
-    ('bass',   0b10, 0, [11,10,9,8,7,6,5,4,3,2,1,0]),              # パルスベース用
-    ('tri',    0b00, 0, [15]),                                     # 三角波(音量無効)
-    ('nz_hat', 0b00, 0, [7,4,2,0]),                                # ハイハット閉
-    ('nz_ohat',0b00, 0, [7,5,4,3,2,2,1,1,0]),                      # ハイハット開
-    ('nz_snare',0b00,0, [11,9,6,4,2,1,0]),                         # スネア
-    ('nz_kick',0b00, 0, [10,6,3,1,0]),                             # ノイズキック
-    ('arp',    0b01, 0, [12,11,10,9,8,7,6,5,4,3,2,1,0]),           # アルペジオ/伴奏
-    ('softlead',0b10,1, [8,8,9,9,10,10,10,9,9,8,8,7,7,6,6,5]),     # ゆったりリード(軽vib)
-    ('leadv',  0b10, 2, [13,13,12,12,11,11,11,10,10,10,10,10,9,9,9,9]), # 熱血リード(強vib)
-    ('echo',   0b10, 0, [6,5,5,4,4,3,3,3]),                        # 疑似エコー(小音量)
-    ('stab',   0b01, 0, [13,11,8,5,3,1,0]),                        # コードスタブ
-    ('run',    0b10, 0, [11,10,9,8,8,7,7,6]),                      # 16分ラン用
+    ('lead',   0b10, 0, 0, [13,12,11,10,10,9,9,8,8,8,7,7,7,6,6,6]),   # メインリード
+    ('lead2',  0b01, 0, 0, [10,9,8,8,7,7,7,6,6,6,5,5,5]),             # サブ/ハモリ
+    ('pluck',  0b00, 0, 0, [12,9,6,4,3,2,1,0]),                       # 短いプラック
+    ('bass',   0b10, 0, 0, [11,10,9,8,7,6,5,4,3,2,1,0]),              # パルスベース用
+    ('tri',    0b00, 0, 0, [15]),                                     # 三角波(音量無効)
+    ('nz_hat', 0b00, 0, 0, [7,4,2,0]),                                # ハイハット閉
+    ('nz_ohat',0b00, 0, 0, [7,5,4,3,2,2,1,1,0]),                      # ハイハット開
+    ('nz_snare',0b00, 0, 0, [11,9,6,4,2,1,0]),                         # スネア
+    ('nz_kick',0b00, 0, 0, [10,6,3,1,0]),                             # ノイズキック
+    ('arp',    0b01, 0, 0, [12,11,10,9,8,7,6,5,4,3,2,1,0]),           # アルペジオ/伴奏
+    ('softlead',0b10, 1, 0, [8,8,9,9,10,10,10,9,9,8,8,7,7,6,6,5]),     # ゆったりリード(軽vib)
+    ('leadv',  0b10, 2, 0, [13,13,12,12,11,11,11,10,10,10,10,10,9,9,9,9]), # 熱血リード(強vib)
+    ('echo',   0b10, 0, 0, [6,5,5,4,4,3,3,3]),                        # 疑似エコー(小音量)
+    ('stab',   0b01, 0, 0, [13,11,8,5,3,1,0]),                        # コードスタブ
+    ('run',    0b10, 0, 0, [11,10,9,8,8,7,7,6]),                      # 16分ラン用
+    ('arpM',   0b01, 0, 1, [11,10,10,9,9,9,8,8,8,8]),                  # 疑似和音(メジャー)
+    ('arpm',   0b01, 0, 2, [11,10,10,9,9,9,8,8,8,8]),                  # 疑似和音(マイナー)
+    ('arpo',   0b10, 0, 3, [12,11,10,9,9,8,8,8]),                      # オクターブ交互
+    ('arps',   0b01, 0, 4, [11,10,9,9,8,8,8,8]),                       # sus4風
 ]
-INST_IDX = {name:i for i,(name,_,_,_) in enumerate(INSTRUMENTS)}
+INST_IDX = {name:i for i,(name,_,_,_,_) in enumerate(INSTRUMENTS)}
 
 def note_table():
     """NTSC パルス/三角波用周期テーブル c1=idx0 .. b7=idx83"""
@@ -205,6 +209,7 @@ def check_lengths(name, loop, streams):
         raise MMLError(f"{name}: チャンネル長が不一致 {lens}")
 
 BANK2_BUDGET = 7800   # 固定テーブル+ストリームでバンク2に収める上限(バイト)
+BANK3_BUDGET = 6000   # バンク3側 (DPCM約1.8KB+ベクタと同居) の上限(バイト)
 
 def main():
     files = sorted(glob.glob('songs/*.mml'))
@@ -226,16 +231,18 @@ def main():
         A('\t.db ' + ','.join('$%02X' % (p >> 8) for p in nt[i:i+12]))
     A('; --- instruments ---')
     A('inst_duty:')
-    A('\t.db ' + ','.join('$%02X' % (d << 6) for _, d, _, _ in INSTRUMENTS))
+    A('\t.db ' + ','.join('$%02X' % (d << 6) for _, d, _, _, _ in INSTRUMENTS))
     A('inst_vib:')
-    A('\t.db ' + ','.join('$%02X' % v for _, _, v, _ in INSTRUMENTS))
+    A('\t.db ' + ','.join('$%02X' % v for _, _, v, _, _ in INSTRUMENTS))
+    A('inst_arp:')
+    A('\t.db ' + ','.join('$%02X' % a for _, _, _, a, _ in INSTRUMENTS))
     A('inst_env_lo:')
-    for n, _, _, _ in INSTRUMENTS:
+    for n, _, _, _, _ in INSTRUMENTS:
         A(f'\t.db low(env_{n})')
     A('inst_env_hi:')
-    for n, _, _, _ in INSTRUMENTS:
+    for n, _, _, _, _ in INSTRUMENTS:
         A(f'\t.db high(env_{n})')
-    for n, _, _, env in INSTRUMENTS:
+    for n, _, _, _, env in INSTRUMENTS:
         A(f'env_{n}:\t.db ' + ','.join('$%02X' % v for v in env) + ',$FF')
     A('; --- songs ---')
     A('song_table:')
@@ -248,16 +255,25 @@ def main():
     # ---- バンク分割: 固定テーブルは songs.asm(バンク2), 溢れた曲は songs2.asm(バンク3) ----
     # ここまでの lines は「テーブル部+song_table」まで(ストリームは未出力)なので,
     # ストリームをサイズ集計しながら振り分ける
-    fixed_size = 168 + len(INSTRUMENTS)*5 + sum(len(e)+1 for _,_,_,e in INSTRUMENTS) + len(songs)*10
+    fixed_size = 168 + len(INSTRUMENTS)*5 + sum(len(e)+1 for _,_,_,_,e in INSTRUMENTS) + len(songs)*10
     linesB = []
     B = linesB.append
     B('; ===== 自動生成: songc.py (バンク3側の楽曲ストリーム) =====')
+    linesC = []
+    C = linesC.append
+    C('; ===== 自動生成: songc.py (バンク1側の楽曲ストリーム) =====')
     used = fixed_size
+    usedB = 0
     for name, loop, streams in songs:
         size = sum(len(d) + (3 if loop else 1) for d in streams.values())
-        target = lines if used + size <= BANK2_BUDGET else linesB
-        if target is lines:
+        if used + size <= BANK2_BUDGET:
+            target = lines
             used += size
+        elif usedB + size <= BANK3_BUDGET:
+            target = linesB
+            usedB += size
+        else:
+            target = linesC
         AA = target.append
         for ch, data in streams.items():
             label = f'sng_{name}_{ch}'
@@ -272,8 +288,9 @@ def main():
                 AA('\t.db $83')
     open('build/songs.asm','w').write('\n'.join(lines) + '\n')
     open('build/songs2.asm','w').write('\n'.join(linesB) + '\n')
+    open('build/songs3.asm','w').write('\n'.join(linesC) + '\n')
     total = sum(len(d) for _,_,s in songs for d in s.values())
-    print(f"songs: {[n for n,_,_ in songs]}  data={total}B  bank2={used}B -> songs.asm / songs2.asm")
+    print(f"songs: {len(songs)}曲 data={total}B  bank2={used}B bank3={usedB}B bank1={total-(used-fixed_size)-usedB}B")
 
 if __name__ == '__main__':
     main()
