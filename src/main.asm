@@ -3012,36 +3012,61 @@ ItemsUpdate:
 	jsr ScoreAdd
 	jmp .hide
 .getcoin
-	; コイン: コンボで価値上昇 (5/10/15/20点)
+	; コイン: 連続取得コンボ (カウンタは99まで, 得点は4連続でカンスト)
 	lda <COMBO
-	cmp #4
-	bcs .cmax
+	cmp #99
+	bcs .cnocnt
 	inc <COMBO
-.cmax
+.cnocnt
 	lda <COMBO
 	cmp #4
 	bcc .cse
 	lda #%00010000		; 実績: コンボMAX
 	jsr AchSet
-	lda #SE_STAR		; 最大コンボはキラキラ音
+	lda #SE_STAR		; 4連続以降はキラキラ音
 	jsr sfx_play
 	jmp .cadd
 .cse
 	lda #SE_ITEM
 	jsr sfx_play
 .cadd
-	; 得点ポップ (T0/T1はアイテム位置のまま)
-	ldy <COMBO
-	ldx ComboOnes,y
-	lda ComboTens,y
+	; コンボ数ポップ (1,2,3,...) T0/T1はアイテム位置のまま
+	lda <COMBO
+	ldy #0
+.cdiv
+	cmp #10
+	bcc .cdivd
+	sec
+	sbc #10
+	iny
+	jmp .cdiv
+.cdivd
+	tax			; 一の位
+	tya			; 十の位 (0なら非表示)
 	jsr PopSpawn
-	ldy <COMBO
+	; 得点加算: インデクスは min(コンボ,4)
+	lda <COMBO
+	cmp #5
+	bcc .cidx
+	lda #4
+.cidx
+	tay
 	lda ComboOnes,y
 	beq .cten
 	ldx #0
 	jsr ScoreAdd
+	lda <COMBO
+	cmp #5
+	bcc .cidx2
+	lda #4
+.cidx2
+	tay
 .cten
 	ldy <COMBO
+	cpy #5
+	bcc .cten2
+	ldy #4
+.cten2
 	lda ComboTens,y
 	beq .cdone
 	ldx #1
