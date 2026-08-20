@@ -1,0 +1,55 @@
+# ステージBGM2: キラキラアイドル風 (オリジナル曲)
+#   G major / 180BPM / A8 + B8 = 16小節ループ
+#   16分アルペジオのキラキラ + クラップ風スネア
+song idol
+speed 5
+# ============ メロディ ============
+@sq1: @leadv o5 l8
+@sq1: d g16 g16 g a b a g b | e g16 g16 g e >e d< b g
+@sq1: e g a g e c e g | f+ a >d< a f+ a f+ d
+@sq1: d g16 g16 g a b a g b | e g16 g16 g e >e d< b g
+@sq1: e g a g e c e g | a b >c+ d< a4 r d
+# --- サビ ---
+@sq1: g4 g8 e8 g8 a8 g8 e8 | a4 a8 f+8 a8 b8 a8 f+8
+@sq1: b4 b8 a8 b8 >d8 c+8< b8 | >e4 d8< b8 g8 a8 b4
+@sq1: g4 g8 e8 g8 a8 g8 e8 | a4 a8 f+8 a8 b8 a8 f+8
+@sq1: b8 >d8 c+8< b8 a8 g8 f+8 e8 | d8 e8 f+8 g8 a4 b8 >c+8<
+# ============ キラキラアルペジオ / ハモリ ============
+@sq2: @pluck o5 l16
+@sq2: d g b g d g b g d g b g d g b g | e g b g e g b g e g b g e g b g
+@sq2: c e g e c e g e c e g e c e g e | d f+ a f+ d f+ a f+ d f+ a f+ d f+ a f+
+@sq2: d g b g d g b g d g b g d g b g | e g b g e g b g e g b g e g b g
+@sq2: c e g e c e g e c e g e c e g e | d f+ a f+ d f+ a f+ d f+ a f+ d f+ a f+
+@sq2: @lead2 l2
+@sq2: e g | f+ a | d f+ | e g
+@sq2: e g | f+ a | d e | f+ a
+# ============ ベース ============
+@tri: @tri o3 l8
+@tri: g >g< g >g< g >g< g >g< | e >e< e >e< e >e< e >e<
+@tri: c >c< c >c< c >c< c >c< | d >d< d >d< d >d< d >d<
+@tri: g >g< g >g< g >g< g >g< | e >e< e >e< e >e< e >e<
+@tri: c >c< c >c< c >c< c >c< | d >d< d >d< d f+ a b
+@tri: c >c< c >c< c >c< c >c< | d >d< d >d< d >d< d >d<
+@tri: b >b< b >b< b >b< b >b< | e >e< e >e< e >e< e >e<
+@tri: c >c< c >c< c >c< c >c< | d >d< d >d< d >d< d >d<
+@tri: b >b< b >b< e >e< e >e< | d >d< d >d< a b >c+ d<
+# ============ ハイハット/クラップ ============
+@noi: l8
+@noi: h h s h h h s h | h h s h h h s h
+@noi: h h s h h h s h | h h s h s16 s16 s16 s16 s H
+@noi: h h s h h h s h | h h s h h h s h
+@noi: h h s h h h s h | h h s h s16 s16 s16 s16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | s16 s16 s16 s16 s s s s H H
+# ============ DPCM ============
+@dpc: l8
+@dpc: k r s r k r s r | k r s r k r s r
+@dpc: k r s r k r s r | k r s r t T s16 s16 s
+@dpc: k r s r k r s r | k r s r k r s r
+@dpc: k r s r k r s r | k r s r t T s16 s16 s
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t t T T k16 k16 s16 s16 k s

@@ -1,0 +1,19 @@
+# スター無敵テーマ (オリジナル曲)
+#   C major / 225BPM / 4小節ループ / 全力疾走
+song star
+speed 4
+@sq1: @run o5 l8
+@sq1: >c< g e g >c< g e g | >c< a f a >c< a f a
+@sq1: >c< g e g >c< g e g | >d< b g b >d< b g b
+@sq2: @run o5 l8
+@sq2: g e c e g e c e | a f c f a f c f
+@sq2: g e c e g e c e | b g d g b g d g
+@tri: @tri o3 l8
+@tri: c >c< c >c< c >c< c >c< | f >f< f >f< f >f< f >f<
+@tri: c >c< c >c< c >c< c >c< | g >g< g >g< g a b >c<
+@noi: l8
+@noi: h s h s h s h s | h s h s h s h s
+@noi: h s h s h s h s | h s h s s16 s16 s16 s16 s H
+@dpc: l8
+@dpc: k k16 k16 k k k k16 k16 k k | k k16 k16 k k k k16 k16 k k
+@dpc: k k16 k16 k k k k16 k16 k k | k k k k t t T T

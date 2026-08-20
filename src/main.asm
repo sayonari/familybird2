@@ -85,6 +85,9 @@ MUS_TITLE	.equ	1
 MUS_STAGE	.equ	2
 MUS_OVER	.equ	3
 MUS_STAFF	.equ	4
+MUS_IDOL	.equ	5
+MUS_CUTE	.equ	6
+MUS_STAR	.equ	7
 
 ;------------------------------------------------------------------------------
 ; ゼロページ変数
@@ -132,6 +135,12 @@ INITED		.equ	$3E
 BUF_READY	.equ	$40	; VRAMバッファ転送要求
 BUF_LEN		.equ	$41	; VRAMバッファ書き込み位置
 PAL_DIRTY	.equ	$42	; パレット転送要求
+STAGE_BGM	.equ	$3F	; 今プレイのステージ曲番号
+SCROLL_F	.equ	$43	; スクロール小数部
+SPEED_ADD	.equ	$44	; スクロール加算小数 (スコアで増える)
+PALPHASE	.equ	$45	; パレット位相 (昼/夕/夜)
+PAUSED		.equ	$46	; ポーズ中
+NEWREC		.equ	$47	; ハイスコア更新フラグ
 SCORE_DIRTY	.equ	$48
 FLAP_HOLD	.equ	$49	; 羽ばたきアニメ用
 PUSHA_BLINK	.equ	$4A
@@ -669,6 +678,8 @@ PalLoad:
 	iny
 	cpy #32
 	bne .loop
+	lda PAL_BUF		; $3F10ミラー対策
+	sta PAL_BUF+16
 	lda #1
 	sta <PAL_DIRTY
 	rts
@@ -724,6 +735,9 @@ SetCharaPal:
 	sta PAL_BUF+30
 	lda #$2A
 	sta PAL_BUF+31
+	; $3F10は$3F00のミラーなので空色と同期させる (空が上書きされるのを防ぐ)
+	lda PAL_BUF
+	sta PAL_BUF+16
 	lda #1
 	sta <PAL_DIRTY
 	rts
@@ -1515,6 +1529,12 @@ SceneGame:
 	sta <BIRD_ANIM
 	lda #GS_WAIT
 	sta <GAME_ST
+	lda #0
+	sta <SCROLL_F
+	sta <SPEED_ADD
+	sta <PALPHASE
+	sta <PAUSED
+	sta <NEWREC
 
 	; パレット: ステージBG + キャラ/UI/アイテム スプライト
 	ldx #0
@@ -1527,8 +1547,17 @@ SceneGame:
 	lda <CHARA_NO
 	jsr SetCharaPal		; PAL_DIRTYも立つ
 
-	; BGM
-	lda #MUS_STAGE
+	; BGM: 3曲からランダム選曲
+	jsr RngStep
+	lda <RNG
+	and #$03
+	cmp #$03
+	bne .bgmok
+	lda #$00
+.bgmok
+	tax
+	lda StageBgmTbl,x
+	sta <STAGE_BGM
 	jsr music_play
 
 	lda #1
@@ -1613,13 +1642,45 @@ GameWait:
 ; プレイ中
 ;------------------------------------------------------------------------------
 GameRun:
-	; スクロール前進
-	inc <SCROLL_L
-	bne .noc
+	; START: ポーズ切り替え
+	lda <PAD_TRG
+	and #PAD_ST
+	beq .nopause
+	lda <PAUSED
+	eor #$01
+	sta <PAUSED
+	lda #SE_SELECT
+	jsr sfx_play
+.nopause
+	lda <PAUSED
+	beq .go
+	; ---- ポーズ中: 鳥を点滅させるだけ ----
+	lda <FRAME_CNT
+	and #$10
+	bne .pblink
+	jsr BirdDraw
+	rts
+.pblink
+	lda #0
+	jsr HideSprite16
+	rts
+.go
+	; スクロール前進 (可変速: スコアで加速)
+	jsr SpeedUpdate
+	lda <SCROLL_F
+	clc
+	adc <SPEED_ADD
+	sta <SCROLL_F
+	lda <SCROLL_L
+	adc #1
+	sta <SCROLL_L
+	bcc .noc
 	lda <SCROLL_H
 	eor #$01
 	sta <SCROLL_H
 .noc
+	; パレット位相 (昼→夕→夜)
+	jsr PalPhaseUpdate
 	; A: 羽ばたき
 	lda <PAD_TRG
 	and #PAD_A
@@ -1636,10 +1697,13 @@ GameRun:
 	jsr PipesUpdate
 	jsr ItemsUpdate
 	jsr CollisionCheck
-	; スター無敵タイマー
+	; スター無敵タイマー (切れたら元のBGMに復帰)
 	lda <STAR_TIMER
 	beq .nostar
 	dec <STAR_TIMER
+	bne .nostar
+	lda <STAGE_BGM
+	jsr music_play
 .nostar
 	jsr BirdDraw
 	lda <SCORE_DIRTY
@@ -1669,9 +1733,10 @@ GameDead:
 ; 羽ばたき
 ;------------------------------------------------------------------------------
 BirdFlap:
-	lda #FLAP_VEL_LO
+	ldx <CHARA_NO
+	lda CharFlapLo,x
 	sta <VEL_L
-	lda #FLAP_VEL_HI
+	lda CharFlapHi,x
 	sta <VEL_H
 	lda #SE_FLAP
 	jsr sfx_play
@@ -1683,10 +1748,11 @@ BirdFlap:
 ; 鳥の物理 (重力・速度・座標)
 ;------------------------------------------------------------------------------
 BirdPhysics:
-	; vel += 重力
+	; vel += 重力 (キャラ別)
+	ldx <CHARA_NO
 	lda <VEL_L
 	clc
-	adc #GRAVITY
+	adc CharGravity,x
 	sta <VEL_L
 	lda <VEL_H
 	adc #0
@@ -2189,11 +2255,13 @@ ItemsUpdate:
 	jsr ScoreAdd
 	jmp .hide
 .getstar
-	; スター: 無敵!
+	; スター: 無敵! 専用曲へ
 	lda #SE_STAR
 	jsr sfx_play
 	lda #255
 	sta <STAR_TIMER
+	lda #MUS_STAR
+	jsr music_play
 	jmp .hide
 .draw
 	; タイル決定
@@ -2361,6 +2429,8 @@ SceneOver:
 	sta <HISCORE,x
 	dex
 	bpl .hicopy
+	lda #1
+	sta <NEWREC
 .nohigh
 	; GAMEOVERロゴをオーバーレイ (タイル$44, 9x3, 画面中央)
 	; スクロール列 = scrollX>>3
@@ -2442,6 +2512,21 @@ SceneOver:
 	rts
 
 OverUpdate:
+	; タイマー236でメダル, 230でNEW RECORD を順次表示 (VBlank負荷分散)
+	lda <SCR_TIMER
+	cmp #236
+	bne .nmedal
+	jsr DrawMedal
+.nmedal
+	lda <SCR_TIMER
+	cmp #230
+	bne .nrec
+	lda <NEWREC
+	beq .nrec
+	jsr DrawNewRec
+	lda #SE_STAR
+	jsr sfx_play
+.nrec
 	; START/Aでタイトル, または時間切れ
 	lda <PAD_TRG
 	and #PAD_ST|PAD_A
@@ -2452,6 +2537,206 @@ OverUpdate:
 	lda #SC_TITLE
 	jmp ChangeScene
 .stay
+	rts
+
+;------------------------------------------------------------------------------
+; スクロール加速 (スコア30で1.25px/f, 70で1.5px/f)
+;------------------------------------------------------------------------------
+SpeedUpdate:
+	lda <SCORE+2
+	ora <SCORE+3
+	ora <SCORE+4
+	ora <SCORE+5
+	bne .fast2
+	lda <SCORE+1
+	cmp #7
+	bcs .fast2
+	cmp #3
+	bcs .fast1
+	lda #0
+	sta <SPEED_ADD
+	rts
+.fast1
+	lda #$40
+	sta <SPEED_ADD
+	rts
+.fast2
+	lda #$80
+	sta <SPEED_ADD
+	rts
+
+;------------------------------------------------------------------------------
+; パレット位相 (10点ごとに 昼→夕焼け→夜→昼...)
+;------------------------------------------------------------------------------
+PalPhaseUpdate:
+	ldx <SCORE+1		; 十の位
+	lda Mod3Tbl,x
+	cmp <PALPHASE
+	beq .done
+	sta <PALPHASE
+	asl a
+	asl a
+	asl a
+	asl a			; x16
+	tax
+	ldy #0
+.copy
+	lda PalPhases,x
+	sta PAL_BUF,y
+	inx
+	iny
+	cpy #16
+	bne .copy
+	; $3F10ミラー対策: スプライト側先頭も空色に
+	lda PAL_BUF
+	sta PAL_BUF+16
+	lda #1
+	sta <PAL_DIRTY
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; ゲームオーバーのメダル表示
+;------------------------------------------------------------------------------
+DrawMedal:
+	; スコア判定: >=50 金 / >=20 銀 / >=5 銅
+	lda <SCORE+2
+	ora <SCORE+3
+	ora <SCORE+4
+	ora <SCORE+5
+	bne .gold
+	lda <SCORE+1
+	cmp #5
+	bcs .gold
+	cmp #2
+	bcs .silver
+	cmp #1
+	bcs .bronze		; 10-19点
+	lda <SCORE
+	cmp #5
+	bcs .bronze		; 5-9点
+	rts			; メダルなし
+.gold
+	lda #low(StrGold)
+	sta <PTR_L
+	lda #high(StrGold)
+	sta <PTR_H
+	lda #11
+	jmp .draw
+.silver
+	lda #low(StrSilver)
+	sta <PTR_L
+	lda #high(StrSilver)
+	sta <PTR_H
+	lda #10
+	jmp .draw
+.bronze
+	lda #low(StrBronze)
+	sta <PTR_L
+	lda #high(StrBronze)
+	sta <PTR_H
+	lda #10
+.draw
+	sta <T4			; 画面列
+	lda #16			; 行
+	sta <T5
+	jmp OverText
+
+DrawNewRec:
+	lda #low(StrNewRec)
+	sta <PTR_L
+	lda #high(StrNewRec)
+	sta <PTR_H
+	lda #11
+	sta <T4
+	lda #18
+	sta <T5
+	jmp OverText
+
+;------------------------------------------------------------------------------
+; スクロール補正つきテキストオーバーレイ (ゲームオーバー画面用)
+;  IN PTR_L/H:文字列(';'終端)  T4:画面列  T5:行
+;------------------------------------------------------------------------------
+OverText:
+	; スクロール列
+	lda <SCROLL_L
+	lsr a
+	lsr a
+	lsr a
+	sta <T6
+	lda <SCROLL_H
+	and #$01
+	beq .nt0
+	lda <T6
+	ora #$20
+	sta <T6
+.nt0
+	ldy #0
+.ch
+	lda [PTR_L],y
+	cmp #';'
+	beq .done
+	cmp #' '
+	beq .skip
+	pha
+	; 列 = (scrollcol + T4 + y) & 63
+	sty <T7
+	lda <T6
+	clc
+	adc <T4
+	clc
+	adc <T7
+	and #$3F
+	sta <T7
+	ldx <BUF_LEN
+	lda #1
+	sta VBUF,x
+	inx
+	; addrH = $20 | NT | (行>>3)
+	lda <T7
+	and #$20
+	lsr a
+	lsr a
+	lsr a
+	sta <T2
+	lda <T5
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc <T2
+	clc
+	adc #$20
+	sta VBUF,x
+	inx
+	; addrL = (行&7)<<5 | 列&31
+	lda <T5
+	and #$07
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	sta <T2
+	lda <T7
+	and #$1F
+	ora <T2
+	sta VBUF,x
+	inx
+	pla
+	clc
+	adc #STR2CHR
+	sta VBUF,x
+	inx
+	lda #0
+	sta VBUF,x
+	stx <BUF_LEN
+.skip
+	iny
+	bne .ch
+.done
+	lda #1
+	sta <BUF_READY
 	rts
 
 ;==============================================================================
@@ -2607,6 +2892,22 @@ SlotXHi:	.db $00,$00,$01,$01
 PipeAttrHi:	.db $23,$23,$27,$27
 PipeAttrLo:	.db $E8,$EC,$E8,$EC
 
+; --- ステージBGM候補 ---
+StageBgmTbl:	.db MUS_STAGE, MUS_IDOL, MUS_CUTE
+
+; --- キャラ別性能 (翔子/マミタス/クリオネコ/女のコ/翔子まりお) ---
+CharGravity:	.db $30,$22,$3E,$2C,$36
+CharFlapLo:	.db $40,$A0,$00,$60,$E0
+CharFlapHi:	.db $FD,$FD,$FD,$FD,$FC
+
+; --- 十の位 -> パレット位相 ---
+Mod3Tbl:	.db 0,1,2,0,1,2,0,1,2,0
+
+; --- パレット位相 (昼/夕焼け/夜) 各16byte ---
+PalPhases:	.db $21,$0F,$09,$2A, $21,$23,$27,$15, $21,$3A,$30,$27, $21,$07,$17,$26
+		.db $36,$0F,$09,$2A, $36,$23,$27,$15, $36,$26,$30,$16, $36,$07,$17,$26
+		.db $02,$0F,$09,$2A, $02,$23,$27,$15, $02,$00,$10,$26, $02,$07,$17,$26
+
 ; --- 待機中のふわふわテーブル ---
 BobTbl:		.db 0,1,2,3,4,3,2,1
 
@@ -2651,6 +2952,10 @@ StrStaff4:	.db "SAYONARI AND CLAUDE;"
 StrStaff5:	.db "SPECIAL THANKS:;"
 StrStaff6:	.db "SHOKO NAKAGAWA;"
 StrStaff7:	.db "PUSH <A> TO TITLE;"
+StrGold:	.db "GOLD MEDAL;"
+StrSilver:	.db "SILVER MEDAL;"
+StrBronze:	.db "BRONZE MEDAL;"
+StrNewRec:	.db "NEW RECORD;"
 
 ; --- ロゴ画面パレット/ネームテーブル ---
 tilepal_logo:	.incbin "assets/FamiBird_logo.dat"

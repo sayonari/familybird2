@@ -1,0 +1,29 @@
+# ステージBGM3: かわいい風 (オリジナル曲)
+#   F major / 128BPM / 8小節ループ / ぴょこぴょこスタッカート
+song cute
+speed 7
+@sq1: @pluck o5 l8
+@sq1: a r a r g a >c< r | b- r b- r a b- >d< r
+@sq1: a r g r f g a r | g e c e g4 r4
+@sq1: a r a r g a >c< r | b- r b- r a b- >d< r
+@sq1: g a b- a g e c e | f a >c< a f4 r4
+@sq2: @pluck o4 l8
+@sq2: r f r a r f r a | r f r b- r f r b-
+@sq2: r e r g r e r g | r e r g r e r g
+@sq2: r f r a r f r a | r f r b- r f r b-
+@sq2: r g r b- r e r g | r f r a r f r a
+@tri: @tri o3 l8
+@tri: f r >c< r f r >c< r | b- r >f< r b- r >f< r
+@tri: c r g r c r g r | c r g r c e g r
+@tri: f r >c< r f r >c< r | b- r >f< r b- r >f< r
+@tri: g r >d< r c r g r | f r >c< r f >f< c f
+@noi: l8
+@noi: h h s r h h s r | h h s r h h s r
+@noi: h h s r h h s r | h h s r h h s H
+@noi: h h s r h h s r | h h s r h h s r
+@noi: h h s r h h s r | h h s r s16 s16 s s H
+@dpc: l8
+@dpc: k r r r k r r r | k r r r k r r r
+@dpc: k r r r k r r r | k r r r t r T r
+@dpc: k r r r k r r r | k r r r k r r r
+@dpc: k r r r k r r r | k r t r T r k s
