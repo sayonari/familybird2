@@ -140,6 +140,10 @@ BUF_LEN		.equ	$41	; VRAMバッファ書き込み位置
 PAL_DIRTY	.equ	$42	; パレット転送要求
 STAGE_BGM	.equ	$3F	; 今プレイのステージ曲番号
 GOLDSCORE	.equ	$39	; ハイスコア更新中フラグ(スコア金色表示)
+TITLE_MODE	.equ	$2C	; タイトル状態 0=通常 1=隠しスクロール中 2=隠し部屋
+IDLE_CNT	.equ	$2D	; タイトル放置カウンタ (4フレームごと+1)
+SECRET_GIFT	.equ	$2E	; 隠し部屋からの開始 = スター無敵スタート
+SCROLL_Y	.equ	$2F	; Yスクロール (タイトル隠し演出用)
 SCROLL_F	.equ	$43	; スクロール小数部
 SPEED_ADD	.equ	$44	; スクロール加算小数 (スコアで増える)
 PALPHASE	.equ	$45	; パレット位相 (昼/夕/夜)
@@ -359,7 +363,7 @@ NMI:
 	sta PPUCTRL
 	lda <SCROLL_L
 	sta PPUSCROLL
-	lda #0
+	lda <SCROLL_Y
 	sta PPUSCROLL
 .nogfx
 	; --- サウンド (毎フレーム必ず) ---
@@ -1188,6 +1192,7 @@ SceneLogo:
 	sta PPUMASK
 	sta <SCROLL_L
 	sta <SCROLL_H
+	sta <SCROLL_Y
 	jsr SpriteInit
 	; ロゴネームテーブル読み込み ($2000へ1KB)
 	lda #%10001000		; +1モード
@@ -1264,7 +1269,10 @@ SceneTitle:
 	sta PPUMASK
 	sta <SCROLL_L
 	sta <SCROLL_H
+	sta <SCROLL_Y
 	sta <CURSOR
+	sta <TITLE_MODE
+	sta <IDLE_CNT
 	jsr SpriteInit
 	lda #%10001000		; +1モード
 	sta PPUCTRL
@@ -1419,6 +1427,36 @@ SceneTitle:
 	rts
 
 TitleUpdate:
+	lda <TITLE_MODE
+	cmp #1
+	bcc .mode0
+	beq .jscroll
+	jmp SecretRoom
+.jscroll
+	jmp SecretScroll
+.mode0
+	; ---- 放置検出 (約12秒で隠しページ発動) ----
+	lda <PAD_ON
+	beq .idlecnt
+	lda #0
+	sta <IDLE_CNT
+	jmp .idledone
+.idlecnt
+	lda <FRAME_CNT
+	and #$03
+	bne .idledone
+	inc <IDLE_CNT
+	lda <IDLE_CNT
+	cmp #180
+	bne .idledone
+	; 発動!
+	lda #1
+	sta <TITLE_MODE
+	jsr SpriteInit
+	lda #SE_STAR
+	jsr sfx_play
+	rts
+.idledone
 	; SELECT/上下: メニュー切り替え
 	lda <PAD_TRG
 	and #PAD_SL|PAD_UP|PAD_DN
@@ -1506,6 +1544,140 @@ TitleDrawChara:
 	sta OAM_BUF+19		; x
 	rts
 
+;------------------------------------------------------------------------------
+; 隠しページ: 上スクロール演出
+;   Yスクロールが8の倍数を跨ぐ直前に, 上端から消えた行へ隠しページの行を
+;   書き込む → 下端から新しい内容が現れる (完全に連続な縦スクロール)
+;------------------------------------------------------------------------------
+SecretScroll:
+	lda <SCROLL_Y
+	clc
+	adc #1
+	and #$07
+	bne .nowrite
+	lda <SCROLL_Y
+	lsr a
+	lsr a
+	lsr a			; 行番号 = S>>3
+	jsr SecretRowWrite
+.nowrite
+	inc <SCROLL_Y
+	lda <SCROLL_Y
+	cmp #240
+	bne .cont
+	lda #0
+	sta <SCROLL_Y
+	lda #2
+	sta <TITLE_MODE
+.cont
+	rts
+
+;------------------------------------------------------------------------------
+; 隠し部屋: START/Aでレインボースタート, Bでタイトルへ戻る
+;------------------------------------------------------------------------------
+SecretRoom:
+	lda <PAD_TRG
+	and #PAD_ST|PAD_A
+	beq .nostart
+	lda #1
+	sta <SECRET_GIFT
+	lda #SE_SELECT
+	jsr sfx_play
+	lda #SC_GAME
+	jmp ChangeScene
+.nostart
+	lda <PAD_TRG
+	and #PAD_B
+	beq .stay
+	lda #SC_TITLE
+	jmp ChangeScene		; 再構築して通常タイトルへ
+.stay
+	rts
+
+;------------------------------------------------------------------------------
+; 隠しページの1行(32タイル)をバッファへ書く IN A:行(0-29)
+;------------------------------------------------------------------------------
+SecretRowWrite:
+	sta <T3
+	; テーブル参照 (行あたり3バイト: 文字列ptr, 開始列)
+	asl a
+	clc
+	adc <T3			; x3
+	tay
+	lda SecretRowTbl,y
+	sta <PTR_L
+	lda SecretRowTbl+1,y
+	sta <PTR_H
+	lda SecretRowTbl+2,y
+	sta <T4			; 開始列
+	; エントリヘッダ
+	ldx <BUF_LEN
+	lda #32
+	sta VBUF,x
+	inx
+	lda <T3
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #$20
+	sta VBUF,x
+	inx
+	lda <T3
+	and #$07
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	sta VBUF,x
+	inx
+	; 32列ぶん生成
+	lda #0
+	sta <T5			; 列
+.col
+	lda <PTR_H
+	beq .blank		; 文字列なし
+	lda <T5
+	cmp <T4
+	bcc .blank		; 開始列より前
+	lda <T5
+	sec
+	sbc <T4
+	tay
+	lda [PTR_L],y
+	cmp #';'
+	bne .chr
+	lda #0
+	sta <PTR_H		; 終端: 以降は空
+	jmp .blank
+.chr
+	cmp #' '
+	bne .conv
+	lda #TILE_SKY
+	jmp .put
+.conv
+	clc
+	adc #STR2CHR
+	jmp .put
+.blank
+	lda #TILE_SKY
+.put
+	sta VBUF,x
+	inx
+	inc <T5
+	lda <T5
+	cmp #32
+	beq .rowdone
+	jmp .col
+.rowdone
+	lda #0
+	sta VBUF,x
+	stx <BUF_LEN
+	lda #1
+	sta <BUF_READY
+	rts
+
 ;==============================================================================
 ; シーン: ゲーム本体
 ;==============================================================================
@@ -1520,6 +1692,7 @@ SceneGame:
 	sta PPUMASK
 	sta <SCROLL_L
 	sta <SCROLL_H
+	sta <SCROLL_Y
 	sta <BUF_LEN
 	sta VBUF
 	sta <BUF_READY
@@ -1587,6 +1760,17 @@ SceneGame:
 	lda StageBgmTbl,x
 	sta <STAGE_BGM
 	jsr music_play
+
+	; 隠しページからの開始: レインボースタート!
+	lda <SECRET_GIFT
+	beq .nogift
+	lda #0
+	sta <SECRET_GIFT
+	lda #254
+	sta <STAR_TIMER
+	lda #MUS_STAR
+	jsr music_play
+.nogift
 
 	lda #1
 	sta <INITED
@@ -2962,6 +3146,7 @@ SceneStaff:
 	sta PPUMASK
 	sta <SCROLL_L
 	sta <SCROLL_H
+	sta <SCROLL_Y
 	jsr SpriteInit
 	lda #%10001000
 	sta PPUCTRL
@@ -3171,6 +3356,78 @@ StrGold:	.db "GOLD MEDAL;"
 StrSilver:	.db "SILVER MEDAL;"
 StrBronze:	.db "BRONZE MEDAL;"
 StrNewRec:	.db "NEW RECORD;"
+
+; --- 隠しページ: 行ごとの文字列と開始列 (30行 x 3byte) ---
+SecretRowTbl:
+	.dw $0000
+	.db 0			; 行0
+	.dw $0000
+	.db 0			; 行1
+	.dw $0000
+	.db 0			; 行2
+	.dw $0000
+	.db 0			; 行3
+	.dw StrSec1
+	.db 8			; 行4
+	.dw $0000
+	.db 0			; 行5
+	.dw $0000
+	.db 0			; 行6
+	.dw $0000
+	.db 0			; 行7
+	.dw StrSec2
+	.db 8			; 行8
+	.dw $0000
+	.db 0			; 行9
+	.dw $0000
+	.db 0			; 行10
+	.dw StrSec3
+	.db 3			; 行11
+	.dw $0000
+	.db 0			; 行12
+	.dw $0000
+	.db 0			; 行13
+	.dw $0000
+	.db 0			; 行14
+	.dw StrSec4
+	.db 4			; 行15
+	.dw $0000
+	.db 0			; 行16
+	.dw StrSec5
+	.db 7			; 行17
+	.dw $0000
+	.db 0			; 行18
+	.dw $0000
+	.db 0			; 行19
+	.dw $0000
+	.db 0			; 行20
+	.dw StrSec6
+	.db 6			; 行21
+	.dw $0000
+	.db 0			; 行22
+	.dw StrSec7
+	.db 3			; 行23
+	.dw $0000
+	.db 0			; 行24
+	.dw $0000
+	.db 0			; 行25
+	.dw $0000
+	.db 0			; 行26
+	.dw StrSec8
+	.db 11			; 行27
+	.dw $0000
+	.db 0			; 行28
+	.dw $0000
+	.db 0			; 行29
+
+StrSec1:	.db "? SECRET PAGE ?;"
+StrSec2:	.db "CONGRATULATIONS;"
+StrSec3:	.db "YOU FOUND THE HIDDEN ROOM;"
+StrSec4:	.db "FAMILYBIRD 2014 TO 2026;"
+StrSec5:	.db "THANKS FOR PLAYING;"
+StrSec6:	.db "GIFT: RAINBOW START;"
+StrSec7:	.db "PUSH START: FLY WITH A STAR;"
+StrSec8:	.db "? ? ? ? ?;"
 
 ; --- ロゴ画面パレット/ネームテーブル ---
 tilepal_logo:	.incbin "assets/FamiBird_logo.dat"
