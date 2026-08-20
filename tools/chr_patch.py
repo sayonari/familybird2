@@ -101,12 +101,48 @@ def put16(chrdata, tile_tl, art):
             chrdata[off+y] = lo
             chrdata[off+8+y] = hi
 
+SPARK_BIG = [
+"...1....",
+"...1....",
+"..111...",
+"1111111.",
+"..111...",
+"...1....",
+"...1....",
+"........",
+]
+SPARK_SMALL = [
+"........",
+"........",
+"...1....",
+"..111...",
+"...1....",
+"........",
+"........",
+"........",
+]
+
+def put8(chrdata, tile, art):
+    """8x8アートをスプライトテーブルの1タイルに書く"""
+    off = 4096 + tile*16
+    for y in range(8):
+        lo = hi = 0
+        for x in range(8):
+            c = art[y][x]
+            v = int(c) if c in "123" else 0
+            if v & 1: lo |= 1 << (7-x)
+            if v & 2: hi |= 1 << (7-x)
+        chrdata[off+y] = lo
+        chrdata[off+8+y] = hi
+
 def main():
     data = bytearray(open(SRC,'rb').read())
     put16(data, 0xE6, COIN0)
     put16(data, 0xE8, COIN1)
     put16(data, 0xEA, STAR)
     put16(data, 0xEC, CHERRY)
+    put8(data, 0xEE, SPARK_BIG)
+    put8(data, 0xEF, SPARK_SMALL)
     open(DST,'wb').write(data)
     print("CHR patched ->", DST)
 

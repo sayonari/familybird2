@@ -636,8 +636,9 @@ sfx_table:
 	.dw sfx_item
 	.dw sfx_star
 	.dw sfx_select
+	.dw sfx_fanfare
 sfx_chan_table:
-	.db 0,0,1,0,0,0		; 0=SQ2, 1=NOI
+	.db 0,0,1,0,0,0,0	; 0=SQ2, 1=NOI
 
 ; 羽ばたき: 短い下降ブリップ「ピュッ」
 sfx_flap:
@@ -692,4 +693,13 @@ sfx_star:
 sfx_select:
 	.db 2, $B8, $46, $00
 	.db 6, $B6, $35, $FF
+	.db 0
+
+; 節目ファンファーレ (10点ごと): タ・ダー!
+sfx_fanfare:
+	.db 5, $BD, $8D, $00
+	.db 4, $BE, $6A, $00
+	.db 4, $BB, $6A, $FF
+	.db 5, $B7, $6A, $FF
+	.db 6, $B3, $6A, $FF
 	.db 0

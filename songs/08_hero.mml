@@ -1,0 +1,48 @@
+# ステージBGM4: 勇者マーチ風 (オリジナル曲)
+#   C major / 150BPM / 16小節 / 付点リズムの行進曲 + タムのマーチ
+song hero
+speed 6
+@sq1: @leadv o5 l8
+@sq1: c8. c16 c e g4 e g | a8. a16 a f >c4< a f
+@sq1: g8. g16 g e c4 d e | d8. d16 d e f e d4
+@sq1: c8. c16 c e g4 e g | a8. a16 a f >c4< a f
+@sq1: g8. g16 g e c4 d e | d e f d e4 g4
+@sq1: a8. a16 a >c< b a g e | f8. f16 f a g f e c
+@sq1: e8. e16 e g >c4< g e | d e f+ g a4 b4
+@sq1: a8. a16 a >c< b a g e | f8. f16 f a g f e c
+@sq1: e g >c< b a g f d | g8. g16 a b >c4< g4
+@sq2: @stab o4 l8
+@sq2: r e r g r e r g | r f r a r f r a
+@sq2: r e r g r e r g | r d r g r d r g
+@sq2: r e r g r e r g | r f r a r f r a
+@sq2: r e r g r e r g | r d r g r d r g
+@sq2: @lead2 l2
+@sq2: c e | a c | e g | d g
+@sq2: c e | a c | f g | g b
+@tri: @tri o3 l8
+@tri: c g c g c g >c< g | f >c< f >c< f >c< f >c<
+@tri: c g c g c g >c< g | g >d< g >d< g >d< g >d<
+@tri: c g c g c g >c< g | f >c< f >c< f >c< f >c<
+@tri: c g c g c g >c< g | g >d< g >d< g a b >d<
+@tri: a >e< a >e< a >e< a >e< | f >c< f >c< f >c< f >c<
+@tri: c g c g c g >c< g | g >d< g >d< g >d< g >d<
+@tri: a >e< a >e< a >e< a >e< | f >c< f >c< f >c< f >c<
+@tri: c g c g a >e< a >e< | g >d< g >d< g a b >c<
+@noi: l8
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s16 s16 s16 s16 s s H s s h
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s h s16 s16 h s h s h
+@noi: s h s16 s16 h s h s h | s16 s16 s16 s16 s s s s H H
+@dpc: l8
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | t t t16 t16 t T T16 T16 T k
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | k t k t k t k16 k16 t
+@dpc: k t k t k t k16 k16 t | t t t16 t16 t T T16 T16 T k

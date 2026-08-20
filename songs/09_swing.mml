@@ -1,0 +1,29 @@
+# ステージBGM5: 夜ふかしスウィング風 (オリジナル曲)
+#   A minor / 150BPM / 8小節 / 付点シャッフル + ウォーキングベース
+song swing
+speed 6
+@sq1: @lead2 o5 l8
+@sq1: a8. b16 a8. g16 e8. g16 a r | f8. g16 f8. e16 d8. e16 f r
+@sq1: a8. b16 >c8.< b16 a8. g16 e r | g+8. a16 g+8. f16 e4 r4
+@sq1: e8. g16 a8. b16 >c8. d16 c8< r | f8. a16 g8. f16 e8. d16 e r
+@sq1: d8. c16 o4 b8. a16 g+8. a16 b8 r8 | o5 a2 r4 e8 g8
+@sq2: @pluck o4 l8
+@sq2: r c r e r c r e | r d r f r d r f
+@sq2: r c r e r c r e | r e r g+ r e r g+
+@sq2: r c r e r c r e | r d r f r d r f
+@sq2: r e r g+ r e r g+ | r c r e r c r e
+@tri: @tri o3 l4
+@tri: a >c e c< | d f a f
+@tri: a >c e c< | e g+ b g+
+@tri: a >c e c< | d e f g
+@tri: f e d <b> | a g f e
+@noi: l8
+@noi: h8. h16 s h h8. h16 s h | h8. h16 s h h8. h16 s h
+@noi: h8. h16 s h h8. h16 s h | h8. h16 s h h8. h16 s H
+@noi: h8. h16 s h h8. h16 s h | h8. h16 s h h8. h16 s h
+@noi: h8. h16 s h h8. h16 s h | s16 s16 s16 s16 s s s s H H
+@dpc: l8
+@dpc: k r r k r k r s | k r r k r k r s
+@dpc: k r r k r k r s | k r r k t T k s
+@dpc: k r r k r k r s | k r r k r k r s
+@dpc: k r r k r k r s | k r t T k16 k16 s16 s16 k s

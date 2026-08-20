@@ -22,8 +22,8 @@ songs = set()
 for k in range(6):
     nes = boot_to_game(extra_title_frames=k*7)
     songs.add(zp(nes,0x3F))
-print("選曲されたBGM:", sorted(songs), "(2=rock 5=idol 6=cute)")
-assert songs <= {2,5,6}
+print("選曲されたBGM:", sorted(songs), "(2=rock 5=idol 6=cute 8=hero 9=swing)")
+assert songs <= {2,5,6,8,9}
 
 # --- 2. パレット位相 + 加速 ---
 nes = boot_to_game()

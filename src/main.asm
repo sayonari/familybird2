@@ -79,6 +79,7 @@ SE_HIT		.equ	2
 SE_ITEM		.equ	3
 SE_STAR		.equ	4
 SE_SELECT	.equ	5
+SE_FANFARE	.equ	6
 
 ; 曲番号
 MUS_TITLE	.equ	1
@@ -88,6 +89,8 @@ MUS_STAFF	.equ	4
 MUS_IDOL	.equ	5
 MUS_CUTE	.equ	6
 MUS_STAR	.equ	7
+MUS_HERO	.equ	8
+MUS_SWING	.equ	9
 
 ;------------------------------------------------------------------------------
 ; ゼロページ変数
@@ -136,6 +139,7 @@ BUF_READY	.equ	$40	; VRAMバッファ転送要求
 BUF_LEN		.equ	$41	; VRAMバッファ書き込み位置
 PAL_DIRTY	.equ	$42	; パレット転送要求
 STAGE_BGM	.equ	$3F	; 今プレイのステージ曲番号
+GOLDSCORE	.equ	$39	; ハイスコア更新中フラグ(スコア金色表示)
 SCROLL_F	.equ	$43	; スクロール小数部
 SPEED_ADD	.equ	$44	; スクロール加算小数 (スコアで増える)
 PALPHASE	.equ	$45	; パレット位相 (昼/夕/夜)
@@ -178,6 +182,13 @@ ITEM_ANIM	.equ	$042A
 ITEM_ARM	.equ	$042C	; 画面右から入場済みフラグ
 
 COLBUF		.equ	$0430	; 列タイル生成バッファ (30行)
+
+; 星パーティクル (5個, スプライト30-34)
+PART_X		.equ	$0470
+PART_Y		.equ	$0475
+PART_DX		.equ	$047A
+PART_DY		.equ	$047F
+PART_LIFE	.equ	$0484
 PAL_BUF		.equ	$04C0	; パレットシャドウ 32byte
 
 ; $0500-$05FF : サウンドドライバ用 (sound.asm参照)
@@ -584,6 +595,11 @@ DrawScore:
 	tay			; OAMオフセット
 	lda #200
 	sta <T4			; x座標
+	; 属性: ハイスコア更新中は金色(パレット3)
+	lda #%00000010
+	clc
+	adc <GOLDSCORE
+	sta <T5
 .digit
 	lda <SCORE,x
 	clc
@@ -594,7 +610,7 @@ DrawScore:
 	sta OAM_BUF,y
 	lda <T2
 	sta OAM_BUF+1,y
-	lda #%00000010		; パレット2 (UI)
+	lda <T5
 	sta OAM_BUF+2,y
 	lda <T4
 	sta OAM_BUF+3,y
@@ -605,7 +621,7 @@ DrawScore:
 	clc
 	adc #$10
 	sta OAM_BUF+5,y
-	lda #%00000010
+	lda <T5
 	sta OAM_BUF+6,y
 	lda <T4
 	sta OAM_BUF+7,y
@@ -1535,6 +1551,12 @@ SceneGame:
 	sta <PALPHASE
 	sta <PAUSED
 	sta <NEWREC
+	sta <GOLDSCORE
+	ldx #4
+.pclr
+	sta PART_LIFE,x
+	dex
+	bpl .pclr
 
 	; パレット: ステージBG + キャラ/UI/アイテム スプライト
 	ldx #0
@@ -1547,14 +1569,10 @@ SceneGame:
 	lda <CHARA_NO
 	jsr SetCharaPal		; PAL_DIRTYも立つ
 
-	; BGM: 3曲からランダム選曲
+	; BGM: 5曲からランダム選曲
 	jsr RngStep
 	lda <RNG
-	and #$03
-	cmp #$03
-	bne .bgmok
-	lda #$00
-.bgmok
+	and #$07
 	tax
 	lda StageBgmTbl,x
 	sta <STAGE_BGM
@@ -1582,6 +1600,7 @@ GameUpdate:
 	lda <CHARA_NO
 	jsr SetCharaPal
 .nochara
+	jsr PartUpdate
 
 	lda <GAME_ST
 	cmp #GS_WAIT
@@ -1708,8 +1727,30 @@ GameRun:
 	jsr BirdDraw
 	lda <SCORE_DIRTY
 	beq .nodraw
+	jsr ChkGold
 	jsr DrawScore
 .nodraw
+	rts
+
+;------------------------------------------------------------------------------
+; ハイスコア更新中か? → GOLDSCORE (スコア表示が金色になる)
+;------------------------------------------------------------------------------
+ChkGold:
+	ldx #5
+.cmp
+	lda <SCORE,x
+	cmp <HISCORE,x
+	bcc .no
+	bne .yes
+	dex
+	bpl .cmp
+.no
+	lda #0
+	sta <GOLDSCORE
+	rts
+.yes
+	lda #1
+	sta <GOLDSCORE
 	rts
 
 ;------------------------------------------------------------------------------
@@ -1742,6 +1783,15 @@ BirdFlap:
 	jsr sfx_play
 	lda #8
 	sta <FLAP_HOLD
+	; 星をパッと散らす
+	lda #BIRD_X-3
+	sta <T0
+	lda <BIRD_Y
+	clc
+	adc #8
+	sta <T1
+	lda #3
+	jsr PartSpawn
 	rts
 
 ;------------------------------------------------------------------------------
@@ -1802,6 +1852,22 @@ BirdDraw:
 	clc
 	adc #$20
 	sta <T0
+	; 死亡中はパニックばたばた
+	lda <GAME_ST
+	cmp #GS_DEAD
+	bne .alive
+	lda <FRAME_CNT
+	and #$04
+	beq .pd
+	lda <T0
+	ora #$02
+	sta <T0
+.pd
+	lda <T0
+	ora #$04		; 上向きポーズで慌てる
+	sta <T0
+	jmp .attr
+.alive
 	; 羽ばたきアニメ
 	lda <FLAP_HOLD
 	beq .noanim
@@ -2236,6 +2302,18 @@ ItemsUpdate:
 	lda #0
 	sta ITEM_ACT,y
 	lda ITEM_TYPE,y
+	pha			; 種類退避 (PartSpawnがX/Yを壊すため)
+	lda <T5
+	clc
+	adc #4
+	sta <T0
+	lda ITEM_Y,y
+	clc
+	adc #4
+	sta <T1
+	lda #5
+	jsr PartSpawn
+	pla
 	beq .getcoin
 	cmp #1
 	beq .getstar
@@ -2540,6 +2618,103 @@ OverUpdate:
 	rts
 
 ;------------------------------------------------------------------------------
+; 星パーティクル: 発生
+;  IN T0:x  T1:y  A:個数
+;------------------------------------------------------------------------------
+PartSpawn:
+	sta <T2			; 残り個数
+	ldx #4
+.find
+	lda PART_LIFE,x
+	bne .next
+	; 空きスロットに生成
+	lda <T0
+	sta PART_X,x
+	lda <T1
+	sta PART_Y,x
+	; 速度: (RNG+FRAME+slot)&7 でテーブル引き
+	stx <T3
+	lda <RNG
+	clc
+	adc <FRAME_CNT
+	clc
+	adc <T3
+	and #$07
+	tay
+	lda PartVelX,y
+	sta PART_DX,x
+	lda PartVelY,y
+	sta PART_DY,x
+	lda #14
+	sta PART_LIFE,x
+	jsr RngStep
+	dec <T2
+	beq .done
+.next
+	dex
+	bpl .find
+.done
+	rts
+
+;------------------------------------------------------------------------------
+; 星パーティクル: 更新+描画 (スプライト30-34)
+;------------------------------------------------------------------------------
+PartUpdate:
+	ldx #4
+.loop
+	lda PART_LIFE,x
+	beq .hide
+	dec PART_LIFE,x
+	; 移動
+	lda PART_X,x
+	clc
+	adc PART_DX,x
+	sta PART_X,x
+	lda PART_Y,x
+	clc
+	adc PART_DY,x
+	sta PART_Y,x
+	; OAM書き込み
+	txa
+	clc
+	adc #30
+	asl a
+	asl a
+	tay
+	lda PART_Y,x
+	sta OAM_BUF,y
+	lda PART_LIFE,x
+	cmp #7
+	bcs .big
+	lda #$EF		; 消えかけは小さい星
+	jmp .tset
+.big
+	lda #$EE
+.tset
+	sta OAM_BUF+1,y
+	lda #%00000011		; パレット3(金)
+	sta OAM_BUF+2,y
+	lda PART_X,x
+	sta OAM_BUF+3,y
+	jmp .pnext
+.hide
+	txa
+	clc
+	adc #30
+	asl a
+	asl a
+	tay
+	lda #$FF
+	sta OAM_BUF,y
+.pnext
+	dex
+	bpl .loop
+	rts
+
+PartVelX:	.db $FE,$FF,$FD,$01,$FF,$02,$00,$FD
+PartVelY:	.db $FF,$FE,$01,$FE,$02,$FF,$FD,$00
+
+;------------------------------------------------------------------------------
 ; スクロール加速 (スコア30で1.25px/f, 70で1.5px/f)
 ;------------------------------------------------------------------------------
 SpeedUpdate:
@@ -2592,6 +2767,9 @@ PalPhaseUpdate:
 	sta PAL_BUF+16
 	lda #1
 	sta <PAL_DIRTY
+	; 節目ファンファーレ
+	lda #SE_FANFARE
+	jsr sfx_play
 .done
 	rts
 
@@ -2892,8 +3070,9 @@ SlotXHi:	.db $00,$00,$01,$01
 PipeAttrHi:	.db $23,$23,$27,$27
 PipeAttrLo:	.db $E8,$EC,$E8,$EC
 
-; --- ステージBGM候補 ---
-StageBgmTbl:	.db MUS_STAGE, MUS_IDOL, MUS_CUTE
+; --- ステージBGM候補 (8エントリ, rng&7で引く) ---
+StageBgmTbl:	.db MUS_STAGE, MUS_IDOL, MUS_CUTE, MUS_HERO, MUS_SWING
+		.db MUS_STAGE, MUS_IDOL, MUS_HERO
 
 ; --- キャラ別性能 (翔子/マミタス/クリオネコ/女のコ/翔子まりお) ---
 CharGravity:	.db $30,$22,$3E,$2C,$36
@@ -2976,6 +3155,9 @@ bglogo:		.incbin "assets/logo.nam"
 	.org $E000
 dpcm_start:
 	.incbin "build/dpcm.bin"
+
+	; バンク2に入りきらない楽曲ストリーム
+	.include "build/songs2.asm"
 
 	.org $FFFA
 	.dw NMI

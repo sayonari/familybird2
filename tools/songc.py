@@ -204,6 +204,8 @@ def check_lengths(name, loop, streams):
     if len(set(lens.values())) != 1:
         raise MMLError(f"{name}: チャンネル長が不一致 {lens}")
 
+BANK2_BUDGET = 7800   # 固定テーブル+ストリームでバンク2に収める上限(バイト)
+
 def main():
     files = sorted(glob.glob('songs/*.mml'))
     songs = []
@@ -243,22 +245,35 @@ def main():
                 A(f'\t.dw sng_{name}_{ch}')
             else:
                 A('\t.dw $0000')
+    # ---- バンク分割: 固定テーブルは songs.asm(バンク2), 溢れた曲は songs2.asm(バンク3) ----
+    # ここまでの lines は「テーブル部+song_table」まで(ストリームは未出力)なので,
+    # ストリームをサイズ集計しながら振り分ける
+    fixed_size = 168 + len(INSTRUMENTS)*5 + sum(len(e)+1 for _,_,_,e in INSTRUMENTS) + len(songs)*10
+    linesB = []
+    B = linesB.append
+    B('; ===== 自動生成: songc.py (バンク3側の楽曲ストリーム) =====')
+    used = fixed_size
     for name, loop, streams in songs:
+        size = sum(len(d) + (3 if loop else 1) for d in streams.values())
+        target = lines if used + size <= BANK2_BUDGET else linesB
+        if target is lines:
+            used += size
+        AA = target.append
         for ch, data in streams.items():
             label = f'sng_{name}_{ch}'
             body = bytearray(data)
-            A(f'{label}:')
+            AA(f'{label}:')
             for i in range(0, len(body), 16):
-                A('\t.db ' + ','.join('$%02X' % b for b in body[i:i+16]))
+                AA('\t.db ' + ','.join('$%02X' % b for b in body[i:i+16]))
             if loop:
-                A(f'\t.db $82')
-                A(f'\t.dw {label}')
+                AA('\t.db $82')
+                AA(f'\t.dw {label}')
             else:
-                A('\t.db $83')
-    out = '\n'.join(lines) + '\n'
-    open('build/songs.asm','w').write(out)
+                AA('\t.db $83')
+    open('build/songs.asm','w').write('\n'.join(lines) + '\n')
+    open('build/songs2.asm','w').write('\n'.join(linesB) + '\n')
     total = sum(len(d) for _,_,s in songs for d in s.values())
-    print(f"songs: {[n for n,_,_ in songs]}  data={total} bytes -> build/songs.asm")
+    print(f"songs: {[n for n,_,_ in songs]}  data={total}B  bank2={used}B -> songs.asm / songs2.asm")
 
 if __name__ == '__main__':
     main()
