@@ -1,15 +1,56 @@
-# タイトルBGM: あたたかい8小節ループ
+# タイトルBGM: アニメOP風ポップス (オリジナル曲)
+#   C major / 150BPM / A8 + サビ8 = 16小節ループ
+#   サビは王道進行 (F→G→Em→Am)．メロディは完全オリジナル
 song title
-speed 7
-@sq1: @softlead o5 l4
-@sq1: e g a g | >c2< g4 e4 | f a g f | e2 d2
-@sq1: e g a g | >c2 d4 c4< | >e4 d4 c4< a4 | g1
-@sq2: @lead2 o4 l2
-@sq2: c e | e g | f a | e d
-@sq2: c e | e g | g2 f2 | d1
-@tri: @tri o3 l2
-@tri: c g | c g | f >c< | c g
-@tri: c g | c e | f g | g1
-@noi: l4
-@noi: r h r h | r h r h | r h r h | r h r h
-@noi: r h r h | r h r h | r h r h | r h r h16 h16 h8
+speed 6
+# ============ メロディ ============
+@sq1: @leadv o5 l8
+# --- Aメロ ---
+@sq1: e g16 g16 g e d c d e | d g16 g16 g b a g d g
+@sq1: a a16 a16 a g e g a >c< | a g f g a4 g f
+@sq1: e g16 g16 g e d c d e | d g16 g16 g b a g a b
+@sq1: f f16 f16 f e d e f a | g a b a g4 r g
+# --- サビ (王道進行: F G Em Am) ---
+@sq1: a4 a g a >c< a g | b4 b a b >d< b a
+@sq1: g e g b >e4 d c< | >c< b a b a4 e g
+@sq1: a4 a g a >c< a g | b4 b a b >d< b a
+@sq1: g b >e d c< b a g | e g >c2< r g
+# ============ 裏打ち/ハモリ ============
+@sq2: @pluck o4 l8
+@sq2: r e r g r e r g | r d r g r d r g
+@sq2: r c r e r c r e | r c r f r c r f
+@sq2: r e r g r e r g | r d r g r d r g
+@sq2: r d r f r d r f | r d r g r d r g
+@sq2: @lead2 l2
+@sq2: f a | g b | e g | c e
+@sq2: f a | g b | g e | e g
+# ============ ベース ============
+@tri: @tri o3 l8
+@tri: c r g r c r g g | g r >d< r g r >d d<
+@tri: a r >e< r a r >e e< | f r >c< r f r >c c<
+@tri: c r g r c r g g | g r >d< r g r >d d<
+@tri: d r a r d r a a | g r >d< r g g a b
+@tri: f f >f< f f f >f< f | g g >g< g g g >g< g
+@tri: e e >e< e e e >e< e | a a >a< a a a >a< a
+@tri: f f >f< f f f >f< f | g g >g< g g g >g< g
+@tri: e e >e< e a a >a< a | c c g c c c g g
+# ============ ハイハット/スネア ============
+@noi: l8
+@noi: h h s h h h16 h16 s h | h h s h h h16 h16 s h
+@noi: h h s h h h16 h16 s h | h h s h s16 s16 s16 s16 s H
+@noi: h h s h h h16 h16 s h | h h s h h h16 h16 s h
+@noi: h h s h h h16 h16 s h | h h s h s16 s16 s16 s16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H
+@noi: h h16 h16 s h h h16 h16 s H | s16 s16 s16 s16 s s s s H H
+# ============ DPCM ============
+@dpc: l8
+@dpc: k r s r k k s r | k r s r k k s r
+@dpc: k r s r k k s r | k r s r t t T k
+@dpc: k r s r k k s r | k r s r k k s r
+@dpc: k r s r k k s r | k r s r t t T k
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t t T T k16 k16 s16 s16 k s
