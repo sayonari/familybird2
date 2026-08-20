@@ -222,6 +222,7 @@ ACH_FLAGS	.equ	$07F0	; 実績ビット (b0:初得点 b1:ランク2 b2:ランク4
 ACH_MAGIC0	.equ	$07F2	; 署名 'F'
 ACH_MAGIC1	.equ	$07F3	; 署名 'B'
 ACH_HISCORE	.equ	$07F4	; ハイスコアのミラー (6桁)
+STRBUF		.equ	$0760	; 文字列組み立てバッファ (RANK表示用)
 
 ; $0500-$05FF : サウンドドライバ用 (sound.asm参照)
 
@@ -2170,15 +2171,18 @@ ScoreGE:
 BIN_L	.equ	$0C
 BIN_H	.equ	$0D
 
-DrawGauge:
-	; ---- スコア→バイナリ (999でクランプ) ----
-	lda <SCORE+3
-	ora <SCORE+4
+;------------------------------------------------------------------------------
+; ランク計算 (共通)
+;  OUT T3:ランク(0基点, 表示は+1)  T2:現ランクの必要幅  T0/T1:現ランク開始値
+;      BIN_L/H: スコアのバイナリ値 (9999でクランプ)
+;------------------------------------------------------------------------------
+CalcRank:
+	lda <SCORE+4
 	ora <SCORE+5
 	beq .conv
-	lda #$E7		; 999
+	lda #$0F		; 9999
 	sta <BIN_L
-	lda #$03
+	lda #$27
 	sta <BIN_H
 	jmp .rank
 .conv
@@ -2202,7 +2206,7 @@ DrawGauge:
 .h100
 	; +百の位*100
 	ldx <SCORE+2
-	beq .rank
+	beq .h1000
 .t100
 	lda <BIN_L
 	clc
@@ -2213,6 +2217,20 @@ DrawGauge:
 .t100n
 	dex
 	bne .t100
+.h1000
+	; +千の位*1000
+	ldx <SCORE+3
+	beq .rank
+.t1000
+	lda <BIN_L
+	clc
+	adc #$E8		; 1000 = $03E8
+	sta <BIN_L
+	lda <BIN_H
+	adc #$03
+	sta <BIN_H
+	dex
+	bne .t1000
 .rank
 	; ---- ランク計算: t=0 step=2; bin>=t+step の間 昇格 ----
 	lda #0
@@ -2252,6 +2270,10 @@ DrawGauge:
 	cmp #98
 	bcc .rloop
 .rdone
+	rts
+
+DrawGauge:
+	jsr CalcRank
 	; ---- 進捗 = bin - t (8bitで十分) ----
 	lda <BIN_L
 	sec
@@ -2944,17 +2966,13 @@ ItemsUpdate:
 	jmp .hide
 .armed
 	; 左に流れ去ったら消す (画面左端16px以内)
+	; ※取り逃しでのコンボリセットは廃止 (取れない位置のコインで
+	;   数字が戻って見えるため. コンボは死亡時のみリセット)
 	lda <T5
 	cmp #16
 	bcs .visible
 	lda #0
 	sta ITEM_ACT,y
-	; コインを取り逃したらコンボ終了
-	lda ITEM_TYPE,y
-	bne .misok
-	lda #0
-	sta <COMBO
-.misok
 	jmp .hide
 .visible
 	; 取得判定: |sx - BIRD_X| < 13 && |iy - birdY| < 14
@@ -3353,12 +3371,17 @@ SceneOver:
 	rts
 
 OverUpdate:
-	; タイマー236でメダル, 230でNEW RECORD を順次表示 (VBlank負荷分散)
+	; タイマー236でRANK行, 233で称号, 230でNEW RECORD (VBlank負荷分散)
 	lda <SCR_TIMER
 	cmp #236
 	bne .nmedal
-	jsr DrawMedal
+	jsr DrawRankLine
 .nmedal
+	lda <SCR_TIMER
+	cmp #233
+	bne .ntitle
+	jsr DrawTitleLine
+.ntitle
 	lda <SCR_TIMER
 	cmp #230
 	bne .nrec
@@ -3760,49 +3783,97 @@ PalPhaseUpdate:
 	rts
 
 ;------------------------------------------------------------------------------
-; ゲームオーバーのメダル表示
+; ゲームオーバー: RANK行 ("RANK NN") を表示
 ;------------------------------------------------------------------------------
-DrawMedal:
-	; スコア判定: >=50 金 / >=20 銀 / >=5 銅
-	lda <SCORE+2
-	ora <SCORE+3
-	ora <SCORE+4
-	ora <SCORE+5
-	bne .gold
-	lda <SCORE+1
-	cmp #5
-	bcs .gold
-	cmp #2
-	bcs .silver
-	cmp #1
-	bcs .bronze		; 10-19点
-	lda <SCORE
-	cmp #5
-	bcs .bronze		; 5-9点
-	rts			; メダルなし
-.gold
-	lda #low(StrGold)
+DrawRankLine:
+	jsr CalcRank
+	; 表示ランク = T3+1 (1-99)
+	ldx <T3
+	inx
+	stx STRBUF+15		; ランク値を保存 (称号行でも使う)
+	; "RANK " を組み立て
+	lda #'R'
+	sta STRBUF
+	lda #'A'
+	sta STRBUF+1
+	lda #'N'
+	sta STRBUF+2
+	lda #'K'
+	sta STRBUF+3
+	lda #' '
+	sta STRBUF+4
+	; 数字 (1-2桁)
+	txa
+	ldy #0
+.div10
+	cmp #10
+	bcc .divd
+	sec
+	sbc #10
+	iny
+	jmp .div10
+.divd
+	sta <T6			; 一の位
+	ldx #5
+	tya
+	beq .ones
+	clc
+	adc #'0'
+	sta STRBUF,x
+	inx
+.ones
+	lda <T6
+	clc
+	adc #'0'
+	sta STRBUF,x
+	inx
+	lda #';'
+	sta STRBUF,x
+	; 表示
+	lda #low(STRBUF)
 	sta <PTR_L
-	lda #high(StrGold)
+	lda #high(STRBUF)
 	sta <PTR_H
-	lda #11
-	jmp .draw
-.silver
-	lda #low(StrSilver)
+	lda #12
+	sta <T4
+	lda #15
+	sta <T5
+	jmp OverText
+
+;------------------------------------------------------------------------------
+; ゲームオーバー: 称号行 (32種, ランク33以上は最高称号)
+;------------------------------------------------------------------------------
+DrawTitleLine:
+	lda STRBUF+15		; 表示ランク (DrawRankLineが保存)
+	cmp #32
+	bcc .idx
+	lda #32
+.idx
+	sec
+	sbc #1			; 0-31
+	asl a
+	tay
+	lda MedalTbl,y
 	sta <PTR_L
-	lda #high(StrSilver)
+	lda MedalTbl+1,y
 	sta <PTR_H
-	lda #10
-	jmp .draw
-.bronze
-	lda #low(StrBronze)
-	sta <PTR_L
-	lda #high(StrBronze)
-	sta <PTR_H
-	lda #10
-.draw
-	sta <T4			; 画面列
-	lda #16			; 行
+	; 文字数を数えて中央寄せ
+	ldy #0
+.len
+	lda [PTR_L],y
+	cmp #';'
+	beq .lend
+	iny
+	bne .len
+.lend
+	tya
+	lsr a
+	sta <T6
+	lda #16
+	sec
+	sbc <T6
+	sta <T4			; 列 = 16 - len/2
+	lda #17
 	sta <T5
 	jmp OverText
 
@@ -3813,7 +3884,7 @@ DrawNewRec:
 	sta <PTR_H
 	lda #11
 	sta <T4
-	lda #18
+	lda #19
 	sta <T5
 	jmp OverText
 
@@ -4296,10 +4367,45 @@ StrStaff4:	.db "SAYONARI AND CLAUDE;"
 StrStaff5:	.db "SPECIAL THANKS:;"
 StrStaff6:	.db "SHOKO NAKAGAWA;"
 StrStaff7:	.db "PUSH <A> TO TITLE;"
-StrGold:	.db "GOLD MEDAL;"
-StrSilver:	.db "SILVER MEDAL;"
-StrBronze:	.db "BRONZE MEDAL;"
 StrNewRec:	.db "NEW RECORD;"
+
+; --- ランク称号 32種 (ランク1-32, 33以上は32番) ---
+MedalTbl:	.dw MT01,MT02,MT03,MT04,MT05,MT06,MT07,MT08
+	.dw MT09,MT10,MT11,MT12,MT13,MT14,MT15,MT16
+	.dw MT17,MT18,MT19,MT20,MT21,MT22,MT23,MT24
+	.dw MT25,MT26,MT27,MT28,MT29,MT30,MT31,MT32
+MT01:	.db "TAMAGO;"
+MT02:	.db "HIYOKO;"
+MT03:	.db "KOTORI;"
+MT04:	.db "SUZUME;"
+MT05:	.db "TSUBAME;"
+MT06:	.db "KAWASEMI;"
+MT07:	.db "HATO;"
+MT08:	.db "KAMOME;"
+MT09:	.db "FUKUROU;"
+MT10:	.db "TONBI;"
+MT11:	.db "TAKA;"
+MT12:	.db "HAYABUSA;"
+MT13:	.db "WASHI;"
+MT14:	.db "KONDORU;"
+MT15:	.db "SKY RUNNER;"
+MT16:	.db "WIND RIDER;"
+MT17:	.db "CLOUD SURFER;"
+MT18:	.db "STORM WING;"
+MT19:	.db "THUNDER WING;"
+MT20:	.db "COMET WING;"
+MT21:	.db "METEOR BIRD;"
+MT22:	.db "SONIC WING;"
+MT23:	.db "JET MASTER;"
+MT24:	.db "SKY KING;"
+MT25:	.db "STAR SEEKER;"
+MT26:	.db "GALAXY WING;"
+MT27:	.db "COSMO FLYER;"
+MT28:	.db "NEBULA BIRD;"
+MT29:	.db "AURORA WING;"
+MT30:	.db "LEGEND BIRD;"
+MT31:	.db "PHOENIX;"
+MT32:	.db "FAMILY BIRD;"
 StrAwHead:	.db "AWARDS;"
 StrAwCnt:	.db "OF 8;"
 AchBitTbl:	.db $01,$02,$04,$08,$10,$20,$40,$80
