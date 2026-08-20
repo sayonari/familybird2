@@ -1214,6 +1214,10 @@ SceneLogo:
 	lda #high(tilepal_logo)
 	sta <PTR_H
 	jsr PalLoad
+	; 背景色は黒に明示 (原作は$3F10ミラーの偶然で黒だった)
+	lda #$0F
+	sta PAL_BUF
+	sta PAL_BUF+16
 	lda #150
 	sta <SCR_TIMER
 	lda #1
@@ -1392,8 +1396,11 @@ SceneTitle:
 	lda #high(tilepal_logo)
 	sta <PTR_H
 	jsr PalLoad
+	; 背景色は水色に明示 (原作は$3F10ミラーの偶然で水色だった)
+	lda #$21
+	sta PAL_BUF
 	lda <CHARA_NO
-	jsr SetCharaPal		; スプライトパレット上書き
+	jsr SetCharaPal		; スプライトパレット上書き(+16も同期される)
 
 	; キャラプレビュー + カーソル
 	jsr TitleDrawChara
@@ -2967,6 +2974,10 @@ SceneStaff:
 	lda #high(tilepal_logo)
 	sta <PTR_H
 	jsr PalLoad
+	; 背景色は黒に明示
+	lda #$0F
+	sta PAL_BUF
+	sta PAL_BUF+16
 	; BGM
 	lda #MUS_STAFF
 	jsr music_play
