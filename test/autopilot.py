@@ -41,6 +41,9 @@ prev_pad = 0
 for i in range(4000):
     gap = upcoming_gap()
     target = gap*8 + 24
+    wind = nes.ram[0x0A]
+    if wind == 1: target += 8       # 上昇気流: 低めを狙う
+    elif wind == 0xFF: target -= 8  # 下降気流: 高めを狙う
     birdy = zp(0x30)
     velh = zp(0x33)
     falling = velh < 0x80

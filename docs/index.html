@@ -260,8 +260,12 @@ footer a { color: var(--fc-cream); }
   パブリックドメインの名曲アレンジ：<b>トルコ行進曲・エンターテイナー・天国と地獄・コロブチカ（ロシア民謡）</b>．
   ⭐スターを取ると<b>無敵専用曲</b>に切り替わるぞ！ プレイ中に<b>START</b>でポーズ．</p>
   <p>羽ばたくたびに<b>星がパッと飛び散り</b>，ハイスコア更新中は<b>スコアが金色に光る</b>．
-  10点の節目にはファンファーレが鳴る！ 画面左上には<b>現在のランク（1〜5）と
-  次のランクまでの進捗ゲージ</b>を常時表示．</p>
+  コインを取ると<b>獲得点数がポインッと浮かぶ</b>．画面左上には<b>現在のランクと
+  次のランクへの進捗ゲージ</b>を常時表示（ランクはどこまでも上がる！）．</p>
+  <p>ときどき<b>風</b>が吹く——葉っぱと風の粒が流れてきたら上昇/下降気流のサイン．
+  スコア15をこえると<b>金色のボス土管</b>（ゲートが狭い，通過で+3点）が現れることも．</p>
+  <p><b>実績システム</b>搭載：8種のAWARDSをタイトルメニューから確認できる．
+  実績とハイスコアは<b>リセットしても消えず</b>，ブラウザ版では自動セーブされる！</p>
   <p style="opacity:.7">……タイトル画面でのんびり待っていると，なにかいいことがあるかも？</p>
   <table class="keys">
     <tr><td class="k">X / SPACE / ↑クリック</td><td>Aボタン（羽ばたき・決定）</td></tr>
@@ -388,6 +392,33 @@ footer a { color: var(--fc-cream); }
 
     nes.loadROM(romData);
     requestAnimationFrame(loop);
+
+    // ---- セーブデータ (実績+ハイスコア) を localStorage に永続化 ----
+    setTimeout(function(){
+      try {
+        var d = JSON.parse(localStorage.getItem('fb2save') || 'null');
+        if (d && nes.cpu && nes.cpu.mem) {
+          var m = nes.cpu.mem;
+          m[0x7F0] = d.a & 0xFF;
+          m[0x7F2] = 0x46; m[0x7F3] = 0x42;      // 署名 'F','B'
+          for (var i = 0; i < 6; i++) {
+            var v = (d.h && d.h[i]) ? d.h[i] : 0;
+            m[0x7F4+i] = v;                       // ミラー
+            m[0x26+i]  = v;                       // ハイスコア(ZP)
+          }
+        }
+      } catch(e) {}
+    }, 900);
+    setInterval(function(){
+      try {
+        if (!running || !nes.cpu || !nes.cpu.mem) return;
+        var m = nes.cpu.mem;
+        if (m[0x7F2] !== 0x46 || m[0x7F3] !== 0x42) return;
+        var h = [];
+        for (var i = 0; i < 6; i++) h.push(m[0x26+i]);
+        localStorage.setItem('fb2save', JSON.stringify({a: m[0x7F0], h: h}));
+      } catch(e) {}
+    }, 3000);
 
     // タブ非表示中は一時停止
     document.addEventListener('visibilitychange', function(){

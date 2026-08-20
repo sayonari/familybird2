@@ -111,6 +111,26 @@ SPARK_BIG = [
 "...1....",
 "........",
 ]
+LEAF = [
+"........",
+"....33..",
+"...333..",
+"..3333..",
+"..333...",
+".333....",
+".3......",
+"........",
+]
+WISP = [
+"........",
+"........",
+".11.....",
+"...11.1.",
+".1...1..",
+"........",
+"........",
+"........",
+]
 BAR_FULL = [
 "22222222",
 "21111112",
@@ -165,6 +185,8 @@ def main():
     put8(data, 0xEF, SPARK_SMALL)
     put8(data, 0xFE, BAR_FULL)
     put8(data, 0xFF, BAR_EMPTY)
+    put8(data, 0x0C, LEAF)
+    put8(data, 0x0D, WISP)
     open(DST,'wb').write(data)
     print("CHR patched ->", DST)
 

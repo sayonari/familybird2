@@ -52,6 +52,7 @@ SC_TITLE	.equ	1
 SC_GAME		.equ	2
 SC_OVER		.equ	3
 SC_STAFF	.equ	4
+SC_AWARDS	.equ	5
 
 ; ゲーム内状態
 GS_WAIT		.equ	0
@@ -80,6 +81,7 @@ SE_ITEM		.equ	3
 SE_STAR		.equ	4
 SE_SELECT	.equ	5
 SE_FANFARE	.equ	6
+SE_WIND		.equ	7
 
 ; 曲番号
 MUS_TITLE	.equ	1
@@ -147,6 +149,9 @@ STAGE_BGM	.equ	$3F	; 今プレイのステージ曲番号
 GOLDSCORE	.equ	$39	; ハイスコア更新中フラグ(スコア金色表示)
 TITLE_MODE	.equ	$2C	; タイトル状態 0=通常 1=隠しスクロール中 2=隠し部屋
 COMBO		.equ	$24	; コイン連続取得コンボ (0-4でキャップ)
+GAPSZ_TMP	.equ	$25	; ColMake用: ゲート幅
+WIND_DIR	.equ	$0A	; 風向き 0=なし 1=上昇 $FF=下降
+WIND_TMR	.equ	$0B	; 風タイマー (4フレームごとに減算)
 IDLE_CNT	.equ	$2D	; タイトル放置カウンタ (4フレームごと+1)
 SECRET_GIFT	.equ	$2E	; 隠し部屋からの開始 = スター無敵スタート
 SCROLL_Y	.equ	$2F	; Yスクロール (タイトル隠し演出用)
@@ -182,6 +187,15 @@ PIPE_CNT	.equ	$0410	; 移動タイマー
 PIPE_PASS	.equ	$0414	; 通過済み(得点済み)
 PIPE_RECYC	.equ	$0418	; 再生成フェーズ (0=未 5..2=列0..3描画待ち 1=完了)
 PIPE_MOVPH	.equ	$041C	; 移動再描画フェーズ (1=下側窓が未描画)
+PIPE_BOSS	.equ	$04A0	; +0-3: ボス土管フラグ
+WP_X		.equ	$04A8	; 風パーティクルX (6個)
+POP_X		.equ	$04B6	; 得点ポップX
+POP_Y		.equ	$04B7	; 得点ポップY
+POP_T		.equ	$04B8	; 得点ポップ残フレーム
+POP_D1		.equ	$04B9	; 十の位タイル ($FF=なし)
+POP_D2		.equ	$04BA	; 一の位タイル
+WP_Y		.equ	$04AE	; 風パーティクルY (6個)
+PIPE_GAPSZ	.equ	$04A4	; +0-3: ゲート幅(行数)
 
 ; アイテム (2個)
 ITEM_ACT	.equ	$0420	; +0,1: 有効
@@ -201,6 +215,13 @@ PART_DX		.equ	$047A
 PART_DY		.equ	$047F
 PART_LIFE	.equ	$0484
 PAL_BUF		.equ	$04C0	; パレットシャドウ 32byte
+
+; --- 実績 (リセットしても消えないよう$0700ページに署名つきで保持) ---
+ACH_FLAGS	.equ	$07F0	; 実績ビット (b0:初得点 b1:ランク2 b2:ランク4 b3:ランク5
+				;  b4:コンボMAX b5:スター b6:隠しページ b7:ボス)
+ACH_MAGIC0	.equ	$07F2	; 署名 'F'
+ACH_MAGIC1	.equ	$07F3	; 署名 'B'
+ACH_HISCORE	.equ	$07F4	; ハイスコアのミラー (6桁)
 
 ; $0500-$05FF : サウンドドライバ用 (sound.asm参照)
 
@@ -230,7 +251,17 @@ Reset:
 .vw1
 	bit PPUSTAT
 	bpl .vw1
-	; RAMクリア
+	; 実績署名チェック (リセットでは実績とハイスコアを保持)
+	ldy #0			; Y=0:初回起動 1:署名あり
+	lda ACH_MAGIC0
+	cmp #'F'
+	bne .fresh
+	lda ACH_MAGIC1
+	cmp #'B'
+	bne .fresh
+	iny
+.fresh
+	; RAMクリア ($0700ページは署名ありなら保持)
 	lda #$00
 	tax
 .clrram
@@ -240,9 +271,30 @@ Reset:
 	sta $0400,x
 	sta $0500,x
 	sta $0600,x
-	sta $0700,x
 	inx
 	bne .clrram
+	cpy #1
+	beq .keep700
+	lda #$00
+	tax
+.clr700
+	sta $0700,x
+	inx
+	bne .clr700
+	lda #'F'
+	sta ACH_MAGIC0
+	lda #'B'
+	sta ACH_MAGIC1
+	jmp .resdone
+.keep700
+	; ハイスコアをミラーから復元
+	ldx #5
+.hires
+	lda ACH_HISCORE,x
+	sta <HISCORE,x
+	dex
+	bpl .hires
+.resdone
 	; OAMシャドウは画面外へ
 	jsr SpriteInit
 .vw2
@@ -301,7 +353,12 @@ MainLoop:
 	jsr SceneOver
 	jmp MainLoop
 .n4
+	cmp #SC_STAFF
+	bne .n5
 	jsr SceneStaff
+	jmp MainLoop
+.n5
+	jsr SceneAwards
 	jmp MainLoop
 
 ;------------------------------------------------------------------------------
@@ -808,11 +865,12 @@ ColMake:
 	; r >= gap
 	sec
 	sbc <T2			; A = r - gap
-	cmp #GAP_ROWS
+	cmp <GAPSZ_TMP
 	bcc .sky		; ゲート内
-	beq .captop		; r == gap+GAP
-	cmp #GAP_ROWS+1
-	beq .capbot		; r == gap+GAP+1
+	beq .captop		; r == gap+幅
+	sbc <GAPSZ_TMP		; (carry set) A = r - gap - 幅
+	cmp #1
+	beq .capbot		; r == gap+幅+1
 .body
 	lda #$60
 	clc
@@ -981,6 +1039,8 @@ PipeSlotDrawDirect:
 	sta <T1
 	lda PIPE_GAP,x
 	sta <T2
+	lda PIPE_GAPSZ,x
+	sta <GAPSZ_TMP
 	jsr ColMake
 	jsr ColWriteDirect
 	inc <T3
@@ -1011,6 +1071,8 @@ PipeSlotDrawBuf:
 	sta <T1
 	lda PIPE_GAP,x
 	sta <T2
+	lda PIPE_GAPSZ,x
+	sta <GAPSZ_TMP
 	jsr ColMake
 	jsr ColToBuf
 	lda <T3
@@ -1019,39 +1081,81 @@ PipeSlotDrawBuf:
 	inc <T3
 	jmp .col
 .colsdone
+	; 属性書き込み: 列2フェーズ=属性行0-2, 列3フェーズ=属性行3-5
 	lda <DRAW_C1
-	cmp #3
-	beq .doattr
+	cmp #2
+	bne .chk3
+	lda #0
+	sta <T4
+	lda #2
+	sta <T5
+	jsr PipeAttrRows
 	jmp .noattr
-.doattr
-	; 属性バイト (行20-23: 土管あり=全pal0 / なし=雲pal2)
+.chk3
+	cmp #3
+	bne .noattr
+	lda #3
+	sta <T4
+	lda #5
+	sta <T5
+	jsr PipeAttrRows
+.noattr
+	ldx <SLOT_TMP
+	lda #1
+	sta <BUF_READY
+	rts
+
+;------------------------------------------------------------------------------
+; 土管セルの属性バイト書き込み (属性行T4..T5)
+;   行0-4: ボス=$55(金) それ以外=$00 / 行5: ボス=$55 土管=$00 空=$A0
+;------------------------------------------------------------------------------
+PipeAttrRows:
+	ldy <SLOT_TMP
+.arow
 	ldx <BUF_LEN
 	lda #1
 	sta VBUF,x
 	inx
-	ldy <SLOT_TMP
 	lda PipeAttrHi,y
 	sta VBUF,x
 	inx
-	lda PipeAttrLo,y
+	; addrL = $C0 + 属性行*8 + セル
+	lda <T4
+	asl a
+	asl a
+	asl a
+	clc
+	adc #$C0
+	clc
+	adc PipeAttrCell,y
 	sta VBUF,x
 	inx
+	; 値
+	lda PIPE_BOSS,y
+	beq .notboss
+	lda #%01010101		; 金 (パレット1)
+	jmp .aput
+.notboss
+	lda <T4
+	cmp #5
+	bne .apal0
 	lda PIPE_ACT,y
-	bne .attrpipe
-	lda #%10100000
-	jmp .attrput
-.attrpipe
+	bne .apal0
+	lda #%10100000		; 空スロットの行5は雲パレット
+	jmp .aput
+.apal0
 	lda #%00000000
-.attrput
+.aput
 	sta VBUF,x
 	inx
 	lda #0
 	sta VBUF,x
 	stx <BUF_LEN
-.noattr
-	ldx <SLOT_TMP
-	lda #1
-	sta <BUF_READY
+	inc <T4
+	lda <T4
+	cmp <T5
+	bcc .arow
+	beq .arow
 	rts
 
 ;------------------------------------------------------------------------------
@@ -1086,6 +1190,9 @@ StageBuild:
 	sta PIPE_PASS,x
 	sta PIPE_RECYC,x
 	sta PIPE_MOVPH,x
+	sta PIPE_BOSS,x
+	lda #GAP_ROWS
+	sta PIPE_GAPSZ,x
 	lda #1
 	sta PIPE_DIR,x
 	lda #8
@@ -1364,13 +1471,22 @@ SceneTitle:
 	lda #20			; 行20
 	sta <T5
 	jsr TextPrint
+	lda #low(StrAwards)
+	sta <PTR_L
+	lda #high(StrAwards)
+	sta <PTR_H
+	lda #11
+	sta <T4
+	lda #22			; 行22
+	sta <T5
+	jsr TextPrint
 	lda #low(StrCharaHint)
 	sta <PTR_L
 	lda #high(StrCharaHint)
 	sta <PTR_H
 	lda #6
 	sta <T4
-	lda #23			; 行23
+	lda #24			; 行24
 	sta <T5
 	jsr TextPrint
 	lda #low(StrCopyright)
@@ -1459,6 +1575,8 @@ TitleUpdate:
 	lda #1
 	sta <TITLE_MODE
 	jsr SpriteInit
+	lda #%01000000		; 実績: 隠しページ発見
+	jsr AchSet
 	lda #SE_STAR
 	jsr sfx_play
 	rts
@@ -1467,9 +1585,13 @@ TitleUpdate:
 	lda <PAD_TRG
 	and #PAD_SL|PAD_UP|PAD_DN
 	beq .nosel
-	lda <CURSOR
-	eor #1
-	sta <CURSOR
+	ldx <CURSOR
+	inx
+	cpx #3
+	bne .curok
+	ldx #0
+.curok
+	stx <CURSOR
 .nosel
 	; B: キャラ変更
 	lda <PAD_TRG
@@ -1497,11 +1619,16 @@ TitleUpdate:
 	lda #SE_SELECT
 	jsr sfx_play
 	lda <CURSOR
-	bne .staff
+	bne .notgame
 	lda #SC_GAME
 	jmp ChangeScene
-.staff
+.notgame
+	cmp #1
+	bne .awards
 	lda #SC_STAFF
+	jmp ChangeScene
+.awards
+	lda #SC_AWARDS
 	jmp ChangeScene
 .done
 	rts
@@ -1742,6 +1869,10 @@ SceneGame:
 	sta <NEWREC
 	sta <GOLDSCORE
 	sta <COMBO
+	sta <WIND_DIR
+	lda #100
+	sta <WIND_TMR
+	lda #0
 	ldx #4
 .pclr
 	sta PART_LIFE,x
@@ -1802,6 +1933,7 @@ GameUpdate:
 	jsr SetCharaPal
 .nochara
 	jsr PartUpdate
+	jsr PopUpdate
 
 	lda <GAME_ST
 	cmp #GS_WAIT
@@ -1902,6 +2034,8 @@ GameRun:
 .noc
 	; パレット位相 (昼→夕→夜)
 	jsr PalPhaseUpdate
+	; 風の状態更新
+	jsr WindUpdate
 	; A: 羽ばたき
 	lda <PAD_TRG
 	and #PAD_A
@@ -1930,6 +2064,7 @@ GameRun:
 	lda <SCORE_DIRTY
 	beq .nodraw
 	jsr ChkGold
+	jsr AchScoreCheck
 	jsr DrawScore
 	jsr DrawGauge
 .nodraw
@@ -1954,6 +2089,52 @@ ChkGold:
 .yes
 	lda #1
 	sta <GOLDSCORE
+	rts
+
+;------------------------------------------------------------------------------
+; 実績セット IN A:ビットマスク (新規解除ならファンファーレ)
+;------------------------------------------------------------------------------
+AchSet:
+	sta <T6
+	and ACH_FLAGS
+	bne .already		; 既に解除済み
+	lda ACH_FLAGS
+	ora <T6
+	sta ACH_FLAGS
+	lda #SE_FANFARE
+	jsr sfx_play
+.already
+	rts
+
+;------------------------------------------------------------------------------
+; スコア系実績チェック (SCORE_DIRTY時に呼ぶ)
+;------------------------------------------------------------------------------
+AchScoreCheck:
+	ldy #0
+	lda #1
+	jsr ScoreGE
+	bcc .done
+	lda #%00000001		; FIRST FLIGHT
+	jsr AchSet
+	ldy #0
+	lda #5
+	jsr ScoreGE
+	bcc .done
+	lda #%00000010		; ランク2 (5点)
+	jsr AchSet
+	ldy #5
+	lda #0
+	jsr ScoreGE
+	bcc .done
+	lda #%00000100		; ランク4 (50点)
+	jsr AchSet
+	ldy #10
+	lda #0
+	jsr ScoreGE
+	bcc .done
+	lda #%00001000		; ランク5 (100点)
+	jsr AchSet
+.done
 	rts
 
 ;------------------------------------------------------------------------------
@@ -1982,138 +2163,197 @@ ScoreGE:
 	rts
 
 ;------------------------------------------------------------------------------
-; ランクゲージ描画 (スプライト35=ランク数字, 36-40=5セルバー)
+; ランクゲージ描画 (無限ランク制)
+;   必要スコア: ランクnに上がるには累積 n*(n+1) 点 (2,6,12,20,30,...)
+;   スプライト35,36=ランク数字(8x8小数字2桁) 37-40=進捗バー4セル
 ;------------------------------------------------------------------------------
+BIN_L	.equ	$0C
+BIN_H	.equ	$0D
+
 DrawGauge:
-	; ランク判定: >=100:4  >=50:3  >=20:2  >=5:1  else:0
-	ldy #10
+	; ---- スコア→バイナリ (999でクランプ) ----
+	lda <SCORE+3
+	ora <SCORE+4
+	ora <SCORE+5
+	beq .conv
+	lda #$E7		; 999
+	sta <BIN_L
+	lda #$03
+	sta <BIN_H
+	jmp .rank
+.conv
+	lda <SCORE		; 一の位
+	sta <BIN_L
 	lda #0
-	jsr ScoreGE
-	bcc .r3
-	lda #4
-	jmp .rset
-.r3
-	ldy #5
+	sta <BIN_H
+	; +十の位*10
+	ldx <SCORE+1
+	beq .h100
+.t10
+	lda <BIN_L
+	clc
+	adc #10
+	sta <BIN_L
+	bcc .t10n
+	inc <BIN_H
+.t10n
+	dex
+	bne .t10
+.h100
+	; +百の位*100
+	ldx <SCORE+2
+	beq .rank
+.t100
+	lda <BIN_L
+	clc
+	adc #100
+	sta <BIN_L
+	bcc .t100n
+	inc <BIN_H
+.t100n
+	dex
+	bne .t100
+.rank
+	; ---- ランク計算: t=0 step=2; bin>=t+step の間 昇格 ----
 	lda #0
-	jsr ScoreGE
-	bcc .r2
-	lda #3
-	jmp .rset
-.r2
-	ldy #2
-	lda #0
-	jsr ScoreGE
-	bcc .r1
+	sta <T0			; t lo
+	sta <T1			; t hi
+	sta <T3			; ランク(0基点)
 	lda #2
-	jmp .rset
-.r1
-	ldy #0
-	lda #5
-	jsr ScoreGE
-	bcc .r0
+	sta <T2			; step
+.rloop
+	; T4/T5 = t + step
+	lda <T0
+	clc
+	adc <T2
+	sta <T4
+	lda <T1
+	adc #0
+	sta <T5
+	; bin >= T4/T5 ?
+	lda <BIN_H
+	cmp <T5
+	bcc .rdone
+	bne .rup
+	lda <BIN_L
+	cmp <T4
+	bcc .rdone
+.rup
+	lda <T4
+	sta <T0
+	lda <T5
+	sta <T1
+	lda <T2
+	clc
+	adc #2
+	sta <T2
+	inc <T3
+	lda <T3
+	cmp #98
+	bcc .rloop
+.rdone
+	; ---- 進捗 = bin - t (8bitで十分) ----
+	lda <BIN_L
+	sec
+	sbc <T0
+	sta <T4			; progress
+	; quarter = step/4
+	lda <T2
+	lsr a
+	lsr a
+	sta <T5
+	bne .qok
 	lda #1
-	jmp .rset
-.r0
-	lda #0
-.rset
-	sta <T3			; ランク(0-4)
-	; ランク数字スプライト (#35)
+	sta <T5			; 最低1
+.qok
+	; ---- ランク数字 (T3+1 を2桁で) ----
+	ldx <T3
+	inx			; 表示ランク = T3+1
+	txa
+	ldy #0
+.div10
+	cmp #10
+	bcc .divd
+	sec
+	sbc #10
+	iny
+	jmp .div10
+.divd
+	sta <T6			; 一の位
+	sty <T7			; 十の位
+	; スプライト35 (十の位, 0なら非表示)
 	ldx #140		; 35*4
+	lda <T7
+	bne .tens
+	lda #$FF
+	sta OAM_BUF,x
+	jmp .ones
+.tens
 	lda #12
 	sta OAM_BUF,x
-	lda <T3
-	clc
-	adc #$C1		; '1'〜'5'
-	sta OAM_BUF+1,x
-	lda #%00000010		; UI白
+	lda <T7
+	sta OAM_BUF+1,x		; 小数字タイル$00-$09
+	lda #%00000010
 	sta OAM_BUF+2,x
 	lda #8
 	sta OAM_BUF+3,x
-	; バー5セル (#36-40)
-	lda <T3
-	cmp #4
-	bcs .allfull
-	; テーブル位置 = ランク*10
-	asl a
-	asl a
-	asl a
-	sta <T5
-	lda <T3
-	asl a
-	clc
-	adc <T5
-	sta <T5			; rank*10
-	lda #0
-	sta <T4			; セル番号
-.cell
-	lda <T4
-	asl a
-	clc
-	adc <T5
-	tay
-	lda RankCellTbl+1,y	; 一の位
-	pha
-	lda RankCellTbl,y	; 十の位
-	tay
-	pla
-	jsr ScoreGE
-	lda #$FE		; 満セル
-	bcs .tile
-	lda #$FF		; 空セル
-.tile
-	pha
-	lda <T4
-	clc
-	adc #36
-	asl a
-	asl a
-	tax
+.ones
+	; スプライト36 (一の位)
+	ldx #144
 	lda #12
 	sta OAM_BUF,x
-	pla
+	lda <T6
 	sta OAM_BUF+1,x
-	lda #%00000011		; アイテムパレット(金)
+	lda #%00000010
 	sta OAM_BUF+2,x
-	lda <T4
-	asl a
-	asl a
-	asl a
-	clc
-	adc #20
+	lda #16
 	sta OAM_BUF+3,x
-	inc <T4
-	lda <T4
-	cmp #5
-	bne .cell
-	rts
-.allfull
-	; ランク5: 全部満タン
+	; ---- バー4セル (スプライト37-40) ----
 	lda #0
-	sta <T4
-.fcell
-	lda <T4
+	sta <T6			; セル番号 0-3
+.cell
+	; しきい値 = quarter*(セル+1)
+	ldx <T6
+	inx
+	lda #0
+.qmul
 	clc
-	adc #36
+	adc <T5
+	dex
+	bne .qmul
+	; progress >= しきい値 ?
+	cmp <T4
+	bcc .full
+	beq .full
+	lda #$FF		; 空セル
+	jmp .ctile
+.full
+	lda #$FE		; 満セル
+.ctile
+	pha
+	lda <T6
+	clc
+	adc #37
 	asl a
 	asl a
 	tax
 	lda #12
 	sta OAM_BUF,x
-	lda #$FE
+	pla
 	sta OAM_BUF+1,x
 	lda #%00000011
 	sta OAM_BUF+2,x
-	lda <T4
+	lda <T6
 	asl a
 	asl a
 	asl a
 	clc
-	adc #20
+	adc #28
 	sta OAM_BUF+3,x
-	inc <T4
-	lda <T4
-	cmp #5
-	bne .fcell
+	inc <T6
+	lda <T6
+	cmp #4
+	bne .cell
 	rts
 
 ;------------------------------------------------------------------------------
@@ -2170,6 +2410,32 @@ BirdPhysics:
 	lda <VEL_H
 	adc #0
 	sta <VEL_H
+	; 風の影響 (プレイ中のみ, やさしめ)
+	lda <GAME_ST
+	cmp #GS_RUN
+	bne .nowind
+	lda <WIND_DIR
+	beq .nowind
+	bmi .winddn
+	; 上昇気流: vel -= $0E (やさしめ)
+	lda <VEL_L
+	sec
+	sbc #$0E
+	sta <VEL_L
+	lda <VEL_H
+	sbc #0
+	sta <VEL_H
+	jmp .nowind
+.winddn
+	; 下降気流: vel += $0E
+	lda <VEL_L
+	clc
+	adc #$0E
+	sta <VEL_L
+	lda <VEL_H
+	adc #0
+	sta <VEL_H
+.nowind
 	; 最大落下速度
 	bmi .noclamp		; 上昇中はそのまま
 	cmp #MAXFALL_HI
@@ -2532,6 +2798,27 @@ PipeRecycle:
 	sta PIPE_PASS,x
 	sta PIPE_MOVPH,x
 	jsr PipeNewGap
+	; ボス抽選: スコア15以上で 1/8 (金色/狭ゲート/+3点/移動なし)
+	lda #0
+	sta PIPE_BOSS,x
+	lda #GAP_ROWS
+	sta PIPE_GAPSZ,x
+	ldy #1
+	lda #5
+	jsr ScoreGE
+	bcc .noboss
+	jsr RngStep
+	lda <RNG
+	and #$07
+	bne .noboss
+	lda #1
+	sta PIPE_BOSS,x
+	lda #GAP_ROWS-2
+	sta PIPE_GAPSZ,x
+	lda #0
+	sta PIPE_MOV,x
+	jmp .nomove		; ボスは移動しない
+.noboss
 	; スコア10以上なら 1/2 の確率で移動土管に
 	lda #0
 	sta PIPE_MOV,x
@@ -2717,6 +3004,9 @@ ItemsUpdate:
 	; チェリー: +20点
 	lda #SE_ITEM
 	jsr sfx_play
+	ldx #0
+	lda #2
+	jsr PopSpawn
 	lda #2
 	ldx #1
 	jsr ScoreAdd
@@ -2731,6 +3021,8 @@ ItemsUpdate:
 	lda <COMBO
 	cmp #4
 	bcc .cse
+	lda #%00010000		; 実績: コンボMAX
+	jsr AchSet
 	lda #SE_STAR		; 最大コンボはキラキラ音
 	jsr sfx_play
 	jmp .cadd
@@ -2738,6 +3030,11 @@ ItemsUpdate:
 	lda #SE_ITEM
 	jsr sfx_play
 .cadd
+	; 得点ポップ (T0/T1はアイテム位置のまま)
+	ldy <COMBO
+	ldx ComboOnes,y
+	lda ComboTens,y
+	jsr PopSpawn
 	ldy <COMBO
 	lda ComboOnes,y
 	beq .cten
@@ -2757,6 +3054,8 @@ ItemsUpdate:
 	jsr sfx_play
 	lda #255
 	sta <STAR_TIMER
+	lda #%00100000		; 実績: スターライダー
+	jsr AchSet
 	lda #MUS_STAR
 	jsr music_play
 	jmp .hide
@@ -2862,10 +3161,13 @@ CollisionCheck:
 	adc #5
 	cmp <T1			; birdY+5 < gap*8 → 上の土管にヒット
 	bcc .die
-	lda <T1
+	lda PIPE_GAPSZ,x
+	asl a
+	asl a
+	asl a
 	clc
-	adc #GAP_ROWS*8
-	sta <T1			; ゲート下端
+	adc <T1
+	sta <T1			; ゲート下端 = (gap+幅)*8
 	lda <BIRD_Y
 	clc
 	adc #12
@@ -2883,6 +3185,8 @@ CollisionCheck:
 	bne .next
 	lda #1
 	sta PIPE_PASS,x
+	lda PIPE_BOSS,x
+	bne .bosspass
 	txa
 	pha
 	lda #SE_POINT
@@ -2892,6 +3196,20 @@ CollisionCheck:
 	jsr ScoreAdd
 	pla
 	tax
+	jmp .passdone
+.bosspass
+	txa
+	pha
+	lda #SE_FANFARE
+	jsr sfx_play
+	lda #3
+	ldx #0
+	jsr ScoreAdd
+	lda #%10000000		; 実績: BOSS BREAKER
+	jsr AchSet
+	pla
+	tax
+.passdone
 .next
 	inx
 	cpx #4
@@ -2924,6 +3242,7 @@ SceneOver:
 .hicopy
 	lda <SCORE,x
 	sta <HISCORE,x
+	sta ACH_HISCORE,x
 	dex
 	bpl .hicopy
 	lda #1
@@ -3132,6 +3451,229 @@ PartUpdate:
 
 PartVelX:	.db $FE,$FF,$FD,$01,$FF,$02,$00,$FD
 PartVelY:	.db $FF,$FE,$01,$FE,$02,$FF,$FD,$00
+
+;------------------------------------------------------------------------------
+; 得点ポップ発生 IN T0:x T1:y A:十の位(0=なし) X:一の位
+;------------------------------------------------------------------------------
+PopSpawn:
+	cmp #0
+	bne .tens
+	lda #$FF
+	jmp .set
+.tens
+	; 値そのままが小数字タイル番号
+.set
+	sta POP_D1
+	stx POP_D2
+	lda <T0
+	sta POP_X
+	lda <T1
+	sec
+	sbc #6
+	sta POP_Y
+	lda #36
+	sta POP_T
+	rts
+
+;------------------------------------------------------------------------------
+; 得点ポップ更新 (スプライト47,48) ふわっと上昇して消える
+;------------------------------------------------------------------------------
+PopUpdate:
+	lda POP_T
+	bne .live
+	; 非表示
+	lda #$FF
+	sta OAM_BUF+188		; 47*4
+	sta OAM_BUF+192		; 48*4
+	rts
+.live
+	dec POP_T
+	; 2フレームに1px上昇
+	lda <FRAME_CNT
+	and #$01
+	bne .draw
+	dec POP_Y
+.draw
+	; 十の位 (スプライト47)
+	lda POP_D1
+	cmp #$FF
+	beq .noten
+	lda POP_Y
+	sta OAM_BUF+188
+	lda POP_D1
+	sta OAM_BUF+189
+	lda #%00000010
+	sta OAM_BUF+190
+	lda POP_X
+	sta OAM_BUF+191
+	jmp .ones
+.noten
+	lda #$FF
+	sta OAM_BUF+188
+.ones
+	; 一の位 (スプライト48)
+	lda POP_Y
+	sta OAM_BUF+192
+	lda POP_D2
+	sta OAM_BUF+193
+	lda #%00000010
+	sta OAM_BUF+194
+	lda POP_X
+	clc
+	adc #7
+	sta OAM_BUF+195
+	rts
+
+;------------------------------------------------------------------------------
+; 風の状態更新 + 風パーティクル (葉っぱ/風の粒, スプライト41-46)
+;------------------------------------------------------------------------------
+WindUpdate:
+	; タイマー (4フレームに1回減算)
+	lda <FRAME_CNT
+	and #$03
+	bne .particles
+	dec <WIND_TMR
+	bne .particles
+	; 状態遷移
+	lda <WIND_DIR
+	beq .roll
+	; 風→無風
+	lda #0
+	sta <WIND_DIR
+	lda #100
+	sta <WIND_TMR
+	jmp .particles
+.roll
+	; 無風→抽選 (0:上昇 1:下降 2,3:無風続行)
+	jsr RngStep
+	lda <RNG
+	and #$03
+	beq .windup
+	cmp #1
+	beq .winddn
+	lda #70
+	sta <WIND_TMR
+	jmp .particles
+.windup
+	lda #1
+	jmp .windset
+.winddn
+	lda #$FF
+.windset
+	sta <WIND_DIR
+	lda #45			; 約3秒
+	sta <WIND_TMR
+	jsr WindScatter
+	lda #SE_WIND
+	jsr sfx_play
+.particles
+	; ---- パーティクル更新 ----
+	ldx #5
+.wp
+	lda <WIND_DIR
+	beq .wphide
+	; X -= 2 (背景より速く流れる = 風感)
+	lda WP_X,x
+	sec
+	sbc #2
+	sta WP_X,x
+	cmp #4
+	bcs .wpy
+	; 左端: 右へ再出現
+	jsr RngStep
+	lda <RNG
+	sta WP_Y,x
+	and #$3F
+	clc
+	adc #180
+	sta WP_X,x
+	lda WP_Y,x
+	and #$7F
+	clc
+	adc #40
+	sta WP_Y,x
+.wpy
+	; Y: 風向き + ゆらぎ
+	lda <WIND_DIR
+	bmi .wpdn
+	dec WP_Y,x
+	jmp .wpwob
+.wpdn
+	inc WP_Y,x
+.wpwob
+	lda <FRAME_CNT
+	lsr a
+	lsr a
+	lsr a
+	stx <T0
+	clc
+	adc <T0
+	and #$03
+	tay
+	lda WobTbl,y
+	clc
+	adc WP_Y,x
+	sta WP_Y,x
+	; OAM (スプライト41+x)
+	txa
+	clc
+	adc #41
+	asl a
+	asl a
+	tay
+	lda WP_Y,x
+	sta OAM_BUF,y
+	txa
+	and #$01
+	bne .wleaf
+	lda #$0D		; 風の粒(白)
+	sta OAM_BUF+1,y
+	lda #%00000010
+	sta OAM_BUF+2,y
+	jmp .wx
+.wleaf
+	lda #$0C		; 葉っぱ(緑)
+	sta OAM_BUF+1,y
+	lda #%00000011
+	sta OAM_BUF+2,y
+.wx
+	lda WP_X,x
+	sta OAM_BUF+3,y
+	jmp .wpnext
+.wphide
+	txa
+	clc
+	adc #41
+	asl a
+	asl a
+	tay
+	lda #$FF
+	sta OAM_BUF,y
+.wpnext
+	dex
+	bmi .wpdone
+	jmp .wp
+.wpdone
+	rts
+
+; 風開始時にパーティクルをばらまく
+WindScatter:
+	ldx #5
+.sc
+	jsr RngStep
+	lda <RNG
+	sta WP_X,x
+	jsr RngStep
+	lda <RNG
+	and #$7F
+	clc
+	adc #40
+	sta WP_Y,x
+	dex
+	bpl .sc
+	rts
+
+WobTbl:	.db 0,1,0,$FF
 
 ;------------------------------------------------------------------------------
 ; スクロール加速 (スコア30で1.25px/f, 70で1.5px/f)
@@ -3479,6 +4021,167 @@ StaffPrintAll:
 	rts
 
 ;==============================================================================
+; シーン: 実績 (AWARDS)
+;==============================================================================
+SceneAwards:
+	lda <INITED
+	beq .init
+	jmp AwardsUpdate
+.init
+	lda #0
+	sta <PPU_ON
+	sta PPUMASK
+	sta <SCROLL_L
+	sta <SCROLL_H
+	sta <SCROLL_Y
+	jsr SpriteInit
+	lda #%10001000
+	sta PPUCTRL
+	bit PPUSTAT
+	; NT0を空タイルで埋める
+	lda #$20
+	sta PPUADDR
+	lda #$00
+	sta PPUADDR
+	lda #TILE_SKY
+	ldx #$C0
+	ldy #3
+.fill1
+	sta PPUDATA
+	dex
+	bne .fill1
+.fill2
+	sta PPUDATA
+	dex
+	bne .fill2
+	dey
+	bne .fill2
+	lda #%01010101
+	ldx #64
+.attr
+	sta PPUDATA
+	dex
+	bne .attr
+	; ヘッダ
+	lda #low(StrAwHead)
+	sta <PTR_L
+	lda #high(StrAwHead)
+	sta <PTR_H
+	lda #12
+	sta <T4
+	lda #3
+	sta <T5
+	jsr TextPrint
+	; 実績リスト 8行 (行8,10,...,22)
+	lda #0
+	sta <T3			; 実績番号
+.list
+	; 名前
+	lda <T3
+	asl a
+	tay
+	lda AchNameTbl,y
+	sta <PTR_L
+	lda AchNameTbl+1,y
+	sta <PTR_H
+	lda #10
+	sta <T4
+	lda <T3
+	asl a
+	clc
+	adc #8
+	sta <T5
+	jsr TextPrint
+	; 解除済みならハートを列8に
+	ldx <T3
+	lda AchBitTbl,x
+	and ACH_FLAGS
+	beq .locked
+	; アドレス = $2000 + 行*32 + 8
+	lda <T3
+	asl a
+	clc
+	adc #8
+	sta <T5
+	lsr a
+	lsr a
+	lsr a
+	clc
+	adc #$20
+	sta PPUADDR
+	lda <T5
+	and #$07
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	clc
+	adc #8
+	sta PPUADDR
+	lda #$CF		; ハート
+	sta PPUDATA
+.locked
+	inc <T3
+	lda <T3
+	cmp #8
+	bne .list
+	; 解除数 "N OF 8" (行25)
+	lda ACH_FLAGS
+	ldx #0
+.cnt
+	lsr a
+	bcc .cnt2
+	inx
+.cnt2
+	bne .cnt
+	txa
+	pha
+	lda #low(StrAwCnt)
+	sta <PTR_L
+	lda #high(StrAwCnt)
+	sta <PTR_H
+	lda #13
+	sta <T4
+	lda #25
+	sta <T5
+	jsr TextPrint
+	; 数字を直接 (行25 列11)
+	lda #$23
+	sta PPUADDR
+	lda #$2B		; 行25(=$2320)+11
+	sta PPUADDR
+	pla
+	clc
+	adc #$C0
+	sta PPUDATA
+	; パレット
+	lda #low(tilepal_logo)
+	sta <PTR_L
+	lda #high(tilepal_logo)
+	sta <PTR_H
+	jsr PalLoad
+	lda #$0F
+	sta PAL_BUF
+	sta PAL_BUF+16
+	lda #1
+	sta <INITED
+	lda #2
+	sta <PPU_ON
+	rts
+
+AwardsUpdate:
+	lda <PAD_TRG
+	and #PAD_A|PAD_B|PAD_ST
+	beq .stay
+	lda #SE_SELECT
+	jsr sfx_play
+	lda #SC_TITLE
+	jmp ChangeScene
+.stay
+	rts
+
+;==============================================================================
 ; データ (バンク1)
 ;==============================================================================
 	.bank 1
@@ -3493,6 +4196,7 @@ SlotXHi:	.db $00,$00,$01,$01
 ; 土管スロットの属性バイトアドレス (行20-23のセル)
 PipeAttrHi:	.db $23,$23,$27,$27
 PipeAttrLo:	.db $E8,$EC,$E8,$EC
+PipeAttrCell:	.db $00,$04,$00,$04
 
 ; --- ステージBGM候補 (16エントリ, rng&15で引く) ---
 StageBgmTbl:	.db MUS_STAGE, MUS_IDOL, MUS_CUTE, MUS_HERO, MUS_SWING
@@ -3556,6 +4260,7 @@ CharaPalTbl:	.db $21,$20,$3F,$17	; 翔子
 ; --- 文字列 (';'終端) ---
 StrGameStart:	.db "GAME START;"
 StrStaffRoll:	.db "STAFF ROLL;"
+StrAwards:	.db "AWARDS;"
 StrCharaHint:	.db "PUSH <B> CHANGE BIRD;"
 StrCopyright:	.db "2014 2026 SAYONARI;"
 StrHi:		.db "HI;"
@@ -3570,6 +4275,25 @@ StrGold:	.db "GOLD MEDAL;"
 StrSilver:	.db "SILVER MEDAL;"
 StrBronze:	.db "BRONZE MEDAL;"
 StrNewRec:	.db "NEW RECORD;"
+StrAwHead:	.db "AWARDS;"
+StrAwCnt:	.db "OF 8;"
+AchBitTbl:	.db $01,$02,$04,$08,$10,$20,$40,$80
+AchNameTbl:	.dw StrAch0
+	.dw StrAch1
+	.dw StrAch2
+	.dw StrAch3
+	.dw StrAch4
+	.dw StrAch5
+	.dw StrAch6
+	.dw StrAch7
+StrAch0:	.db "FIRST FLIGHT;"
+StrAch1:	.db "SCORE 5;"
+StrAch2:	.db "SCORE 50;"
+StrAch3:	.db "SCORE 100;"
+StrAch4:	.db "COMBO MASTER;"
+StrAch5:	.db "STAR RIDER;"
+StrAch6:	.db "SECRET PAGE;"
+StrAch7:	.db "BOSS BREAKER;"
 
 ; --- 隠しページ: 行ごとの文字列と開始列 (30行 x 3byte) ---
 SecretRowTbl:
