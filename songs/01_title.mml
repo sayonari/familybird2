@@ -4,7 +4,7 @@
 song title
 speed 6
 # ============ メロディ ============
-@sq1: @leadv o5 l8
+@sq1: @singer o5 l8 v15 q7
 # --- Aメロ ---
 @sq1: e g16 g16 g e d c d e | d g16 g16 g b a g d g
 @sq1: a a16 a16 a g e g a >c< | a g f g a4 g f
@@ -25,7 +25,7 @@ speed 6
 @sq2: f a | g b | e g | c e
 @sq2: f a | g b | g e | e g
 # ============ ベース ============
-@tri: @tri o3 l8
+@tri: @tri o3 l8 q6
 @tri: c r g r c r g g | g r >d< r g r >d d<
 @tri: a r >e< r a r >e e< | f r >c< r f r >c c<
 @tri: c r g r c r g g | g r >d< r g r >d d<

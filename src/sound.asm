@@ -16,6 +16,8 @@ SFXA_PTR	.equ	$5A	; SFXスロットA ポインタ
 SFXB_PTR	.equ	$5C	; SFXスロットB ポインタ
 SND_ENVP	.equ	$5E	; エンベロープ/汎用テンポラリポインタ ($5E,$5F)
 SND_CH		.equ	$4D	; 処理中ch番号
+SND_T		.equ	$11	; 汎用テンポラリ
+SND_T2		.equ	$17	; 汎用テンポラリ ($17,$18)
 
 ; --- 絶対RAM ---
 SND_RAM		.equ	$0500
@@ -33,6 +35,12 @@ sfxb_on		.equ	SND_RAM+$1F
 snd_tick	.equ	SND_RAM+$20	; ビブラート用フレームカウンタ
 snd_perlo	.equ	SND_RAM+$21	; +33..35 : SQ1/SQ2/TRI 基準周期(下位)
 snd_perhi	.equ	SND_RAM+$24	; +36..38 : 同(上位)
+snd_gate	.equ	SND_RAM+$28	; +40..44 : ゲート残フレーム (0=消音済)
+snd_q		.equ	SND_RAM+$2D	; +45..49 : ゲートタイム設定 (1-8, 8=切らない)
+snd_atten	.equ	SND_RAM+$32	; +50..54 : 音量減衰 (0=最大)
+snd_pepos	.equ	SND_RAM+$37	; +55..59 : ピッチエンベロープ位置
+snd_vdly	.equ	SND_RAM+$3C	; +60..64 : ビブラート遅延残
+snd_duty	.equ	SND_RAM+$41	; +65..69 : デューティ上書き ($FF=楽器既定)
 
 ;==============================================================================
 ; 初期化
@@ -105,6 +113,14 @@ music_play:
 	sta snd_keyon,x
 	sta snd_envpos,x
 	sta snd_inst,x
+	sta snd_atten,x
+	sta snd_pepos,x
+	sta snd_vdly,x
+	sta snd_gate,x
+	lda #8
+	sta snd_q,x		; 既定=切らない
+	lda #$FF
+	sta snd_duty,x		; 楽器既定のデューティ
 	dex
 	bpl .setch
 	lda #1
@@ -233,12 +249,22 @@ mus_ch_update:
 	ldy #0
 	lda [SND_ENVP],y	; イベントバイト
 	cmp #$80
-	bcc .noteon
-	beq .rest
+	bcs .notnote
+	jmp .noteon
+.notnote
+	bne .notrest
+	jmp .rest
+.notrest
 	cmp #$81
 	beq .setinst
 	cmp #$82
 	beq .jump
+	cmp #$84
+	beq .setq
+	cmp #$85
+	beq .setvol
+	cmp #$86
+	beq .setduty
 	; --- $83 halt ---
 	lda <SND_CH
 	asl a
@@ -254,6 +280,40 @@ mus_ch_update:
 	iny
 	lda [SND_ENVP],y
 	sta snd_inst,x
+	; 楽器のデフォルトを反映
+	tay
+	lda inst_vdly,y
+	sta snd_vdly,x
+	lda #$FF
+	sta snd_duty,x		; デューティ上書きを解除
+	jsr mus_ptr_add2
+	jmp .evloop
+.setq
+	iny
+	lda [SND_ENVP],y
+	sta snd_q,x
+	jsr mus_ptr_add2
+	jmp .evloop
+.setvol
+	iny
+	lda [SND_ENVP],y	; 0-15 (15=最大)
+	sta <SND_T
+	lda #15
+	sec
+	sbc <SND_T
+	sta snd_atten,x
+	jsr mus_ptr_add2
+	jmp .evloop
+.setduty
+	iny
+	lda [SND_ENVP],y	; 0-3
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a
+	asl a			; bit7-6へ
+	sta snd_duty,x
 	jsr mus_ptr_add2
 	jmp .evloop
 .jump
@@ -285,13 +345,59 @@ mus_ch_update:
 	iny
 	lda [SND_ENVP],y
 	sta snd_wait,x
+	sta <SND_T		; 音長を保存 (ゲート計算用)
 	lda #1
 	sta snd_keyon,x
 	lda #0
 	sta snd_envpos,x
+	sta snd_pepos,x
+	ldy snd_inst,x
+	lda inst_vdly,y
+	sta snd_vdly,x
+	jsr mus_calc_gate
 	jsr mus_ptr_add2
 	jsr mus_ch_trigger
 	jmp mus_ch_envelope
+
+;------------------------------------------------------------------------------
+; ゲート長計算 IN X:ch  SND_T:音長  OUT snd_gate[x]
+;   gate = (dur * q) >> 3   (q=8ならdurそのまま)
+;------------------------------------------------------------------------------
+mus_calc_gate:
+	lda snd_q,x
+	cmp #8
+	bcc .calc
+	lda #0			; q8 = レガート(切らない)
+	sta snd_gate,x
+	rts
+.calc
+	lda #0
+	sta <SND_T2
+	sta <SND_T2+1
+	tay			; Y=q (1-7)
+.mul
+	lda <SND_T2
+	clc
+	adc <SND_T
+	sta <SND_T2
+	bcc .nc
+	inc <SND_T2+1
+.nc
+	dey
+	bne .mul
+	; >>3
+	ldy #3
+.shr
+	lsr <SND_T2+1
+	ror <SND_T2
+	dey
+	bne .shr
+	lda <SND_T2
+	bne .ok
+	lda #1			; 最低1フレームは鳴らす
+.ok
+	sta snd_gate,x
+	rts
 
 ; --- ポインタ+2 IN X:ch (X保存) ---
 mus_ptr_add2:
@@ -388,6 +494,17 @@ mus_ch_trigger:
 ; エンベロープ更新 (SQ1/SQ2/NOI)  IN X: ch
 ;------------------------------------------------------------------------------
 mus_ch_envelope:
+	; --- ゲートタイム: 時間切れなら消音 (gate=0はレガート=切らない) ---
+	lda snd_keyon,x
+	beq .nogate
+	lda snd_gate,x
+	beq .nogate
+	dec snd_gate,x
+	bne .nogate
+	lda #0
+	sta snd_keyon,x
+	jmp mus_ch_silence
+.nogate
 	cpx #2
 	bcc .pulse
 	beq .tri
@@ -395,10 +512,9 @@ mus_ch_envelope:
 	beq .noise
 	rts
 .tri
-	; TRIはビブラートのみ
 	lda snd_keyon,x
 	beq .tdone
-	jsr snd_vibrato
+	jsr snd_pitchfx
 .tdone
 	rts
 .pulse
@@ -411,9 +527,21 @@ mus_ch_envelope:
 	bne .pdone
 .pgo
 	jsr mus_env_value	; A=音量
+	sec
+	sbc snd_atten,x		; 音量指定ぶん減衰
+	bcs .vok
+	lda #0
+.vok
 	ora #$30		; 定音量+レングス停止
+	sta <SND_T
+	; デューティ: 上書きがあればそれを, なければ楽器既定
+	lda snd_duty,x
+	cmp #$FF
+	bne .dovr
 	ldy snd_inst,x
-	ora inst_duty,y		; dutyはbit7-6
+	lda inst_duty,y
+.dovr
+	ora <SND_T
 	cpx #0
 	bne .p2w
 	sta $4000
@@ -421,14 +549,7 @@ mus_ch_envelope:
 .p2w
 	sta $4004
 .pfx
-	; 高速アルペジオ (疑似和音) があればビブラートより優先
-	ldy snd_inst,x
-	lda inst_arp,y
-	beq .pvib
-	jsr snd_arpeggio
-	rts
-.pvib
-	jsr snd_vibrato
+	jsr snd_pitchfx
 .pdone
 	rts
 .off_p
@@ -439,6 +560,11 @@ mus_ch_envelope:
 	lda sfxb_on
 	bne .ndone
 	jsr mus_env_value
+	sec
+	sbc snd_atten,x
+	bcs .nvok
+	lda #0
+.nvok
 	ora #$30
 	sta $400C
 .ndone
@@ -447,37 +573,108 @@ mus_ch_envelope:
 	jmp mus_ch_silence
 
 ;------------------------------------------------------------------------------
-; ビブラート適用 IN X:ch(0/1/2, keyon中)  周期下位のみ揺らす($4003系は触らない)
+; ピッチ系エフェクト統合 IN X:ch(0/1/2)
+;   1. アルペジオ(疑似和音) + ピッチエンベロープ(しゃくり/ドロップ) の半音オフセット
+;   2. オフセット0なら基準周期に戻し, 遅延ビブラートを適用
 ;------------------------------------------------------------------------------
-snd_vibrato:
+snd_pitchfx:
+	lda #0
+	sta <SND_T		; 半音オフセット合計
+	ldy snd_inst,x
+	; --- アルペジオ ---
+	lda inst_arp,y
+	beq .nopa
+	sec
+	sbc #1
+	asl a
+	asl a			; 種別*4
+	sta <SND_T2
+	lda snd_tick
+	and #$03
+	clc
+	adc <SND_T2
+	tay
+	lda arp_tbl,y
+	clc
+	adc <SND_T
+	sta <SND_T
+	ldy snd_inst,x
+.nopa
+	; --- ピッチエンベロープ ---
+	lda inst_pe,y
+	beq .nope
+	tay
+	lda pe_lo,y
+	sta <SND_ENVP
+	lda pe_hi,y
+	sta <SND_ENVP+1
+	ldy snd_pepos,x
+	lda [SND_ENVP],y
+	cmp #$80
+	beq .pehold		; 終端: 最後の値を保持
+	inc snd_pepos,x
+	jmp .peadd
+.pehold
+	dey
+	lda [SND_ENVP],y
+.peadd
+	clc
+	adc <SND_T
+	sta <SND_T
+.nope
+	; --- オフセットがあれば note+offset の周期を書く ---
+	lda <SND_T
+	beq .vibrato
+	clc
+	adc snd_note,x
+	bmi .vibrato		; 音域外は無視
+	cmp #84
+	bcs .vibrato
+	tay
+	lda note_table_hi,y
+	cmp snd_perhi,x
+	bne .vibrato		; 上位が変わる場合は書かない(位相リセット回避)
+	lda note_table_lo,y
+	jmp snd_write_lo
+.vibrato
+	; --- 遅延ビブラート ---
 	ldy snd_inst,x
 	lda inst_vib,y
-	bne .on
-	rts
-.on
+	beq .base
+	lda snd_vdly,x
+	beq .vgo
+	dec snd_vdly,x
+	jmp .base
+.vgo
 	; 端の周期では境界跨ぎ防止のためスキップ
-	pha
 	lda snd_perlo,x
 	cmp #$08
-	bcc .skip2
+	bcc .base
 	cmp #$F0
-	bcs .skip2
-	; インデクス = (tick>>2)&7
+	bcs .base
 	lda snd_tick
 	lsr a
 	lsr a
 	and #$07
-	tay
-	pla
+	sta <SND_T2
+	ldy snd_inst,x
+	lda inst_vib,y
 	cmp #2
-	beq .d2
+	beq .vd2
+	ldy <SND_T2
 	lda vib_tbl1,y
-	jmp .add
-.d2
+	jmp .vadd
+.vd2
+	ldy <SND_T2
 	lda vib_tbl2,y
-.add
+.vadd
 	clc
 	adc snd_perlo,x
+	jmp snd_write_lo
+.base
+	; 基準周期に戻す
+	lda snd_perlo,x
+snd_write_lo:
 	cpx #0
 	beq .w0
 	cpx #1
@@ -490,46 +687,9 @@ snd_vibrato:
 .w1
 	sta $4006
 	rts
-.skip2
-	pla
-	rts
 
 vib_tbl1:	.db 0,1,1,0,0,$FF,$FF,0
 vib_tbl2:	.db 0,1,2,1,0,$FF,$FE,$FF
-
-;------------------------------------------------------------------------------
-; 高速アルペジオ: 1フレームごとに和音構成音を巡回 (FAMICOMPO風疑似和音)
-;  IN X:ch(0/1)  A:アルペジオ種別(1=メジャー 2=マイナー 3=オクターブ)
-;  高音域(周期上位が基音と同じ範囲)でのみ音程変更する (位相リセット音回避)
-;------------------------------------------------------------------------------
-snd_arpeggio:
-	; オフセット = arp_tblN[tick&3]
-	sec
-	sbc #1
-	asl a
-	asl a			; 種別*4
-	sta <SND_ENVP
-	lda snd_tick
-	and #$03
-	clc
-	adc <SND_ENVP
-	tay
-	lda arp_tbl,y		; 半音オフセット
-	clc
-	adc snd_note,x
-	tay			; 対象ノート
-	lda note_table_hi,y
-	cmp snd_perhi,x
-	bne .skip		; 上位バイトが変わるなら書かない(低音域の保険)
-	lda note_table_lo,y
-	cpx #0
-	bne .w1
-	sta $4002
-	rts
-.w1
-	sta $4006
-.skip
-	rts
 
 arp_tbl:	.db 0,4,7,4		; メジャー
 		.db 0,3,7,3		; マイナー

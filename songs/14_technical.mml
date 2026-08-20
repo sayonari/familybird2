@@ -1,27 +1,36 @@
-# ステージBGM10: 技巧デモ曲 (完全オリジナル / FAMICOMPO風テクニック全部盛り)
+# ステージBGM10: 技巧デモ曲 (完全オリジナル)
 #   A minor / 180BPM
-#   技法: 高速アルペジオ疑似和音(sq2), 32分ラン, セルフエコー, オクターブベース
+#   技法: ゲートタイム(q)による歯切れ制御, 音量アクセント(v), デューティ変調(y),
+#         ピッチエンベロープ(しゃくり/ドロップ), 高速アルペジオ疑似和音, 32分ラン
 song technical
 speed 5
-@sq1: @lead o5 l16
-@sq1: a b >c d< e8 r8 a b >c d e d c< b | f g a >c< a8 r8 f g a >c d c< a g
-@sq1: e f g a g8 r8 e f g a b a g f | e g+ b >d c< b g+ e e8 r8 g+8 b8
-@sq1: @leadv a8. b16 >c8. d16 e4< r4 | @echo a8. b16 >c8. d16 e4< r4
-@sq1: @run e32 f32 g32 a32 b32 >c32 d32 e32 f32 e32 d32 c32< b32 a32 g32 f32 e32 f32 g32 a32 e8 a8 >c8 e8< | @leadv a4 e8 a8 >c4< a4
-@sq2: @arpm o4 l1
-@sq2: a | @arpM o5 f1
-@sq2: c1 | @arpM e1
-@sq2: @arpm o4 a1 | @arpM o5 f1
-@sq2: @arpM c2 @arpm e2 | @arpm o4 a1
-@tri: @tri o3 l8
+# ============ リード ============
+@sq1: @scoop o5 l16 v15 q7
+@sq1: a b >c d< v11 q4 e8 r8 v15 q7 a b >c d e d c< b
+@sq1: q4 v13 f g a >c< v9 a8 r8 v13 f g a >c d c< a g
+@sq1: @lead v15 q6 e f g a v10 g8 r8 v14 q3 e f g a b a g f
+@sq1: @octhit v15 q8 e g+ b >d< q4 c b g+ e v12 e8 r8 y1 g+8 b8
+@sq1: @scoop y2 v15 q8 a8. b16 >c8. d16 e4< r4
+@sq1: @lead v8 q5 a8. b16 >c8. d16 e4< r4
+@sq1: @run v14 q2 y0 e32 f32 g32 a32 b32 >c32 d32 e32 f32 e32 d32 c32< b32 a32 g32 f32 e32 f32 g32 a32
+@sq1: @drop v15 q8 e8 a8 >c8 e8< | @singer y2 v15 q8 a4 e8 a8 >c4< a4
+# ============ 疑似和音バッキング ============
+@sq2: @arpm o4 l1 v9 q7
+@sq2: a | @arpM o5 v10 f1
+@sq2: v9 c1 | @arpM v11 e1
+@sq2: @arpm o4 v9 a1 | @arpM o5 v10 f1
+@sq2: @arpM v11 c2 @arpm v9 e2 | @arpm o4 v12 a1
+# ============ ベース ============
+@tri: @tri o3 l8 q6
 @tri: a >a< a >a< a >a< a >a< | f >f< f >f< f >f< f >f<
 @tri: c >c< c >c< c >c< c >c< | e >e< e >e< e >e< e >e<
 @tri: a >a< a >a< a >a< a >a< | f >f< f >f< f >f< f >f<
-@tri: c >c< e >e< a a e e | a >a< a >a< a a >a a<
-@noi: l8
-@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h
-@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h s16 s16 s16 s16 s H
-@noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h
+@tri: c >c< e >e< a a e e | q8 a >a< a >a< a a >a a<
+# ============ ドラム ============
+@noi: l8 v15
+@noi: h h16 h16 s h v11 h h16 h16 s h | v15 h h16 h16 s h v11 h h16 h16 s h
+@noi: v15 h h16 h16 s h h h16 h16 s h | h h16 h16 s h s16 s16 s16 s16 s H
+@noi: h h16 h16 s h v11 h h16 h16 s h | v15 h h16 h16 s h h h16 h16 s h
 @noi: s16 s16 s16 s16 s16 s16 s16 s16 h h s s | s16 s16 s16 s16 s s s s H H
 @dpc: l8
 @dpc: k k16 k16 s r k k16 k16 s r | k k16 k16 s r k k16 k16 s r

@@ -5,7 +5,7 @@
 song stage
 speed 5
 # ============ メロディ ============
-@sq1: @leadv o5 l8
+@sq1: @leadv o5 l8 v15 q7
 # --- イントロ (ユニゾンリフ) ---
 @sq1: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
 # --- Aセクション ---
@@ -22,7 +22,7 @@ speed 5
 @sq1: >d d16 d16 d c d e f e< | >e e16 e16 e d e f g e<
 @sq1: >f e d e f4< a >c<      | g a b >c d e f+ g<
 # ============ ハモリ/スタブ/エコー ============
-@sq2: @stab o4 l8
+@sq2: @stab o4 l8 v11 q2
 # --- イントロ (下でユニゾン) ---
 @sq2: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
 # --- A: 裏打ちパワーコード ---
@@ -39,7 +39,7 @@ speed 5
 @sq2: r d r f r d r f | r e r g r e r g
 @sq2: r f r a r f r a | r g b16 b16 r g >d16 d16< b g
 # ============ ベース (オクターブ奏法) ============
-@tri: @tri o3 l8
+@tri: @tri o3 l8 q6
 # --- イントロ ---
 @tri: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
 # --- A ---

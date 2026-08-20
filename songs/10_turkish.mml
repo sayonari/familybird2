@@ -2,22 +2,22 @@
 #   A minor / 180BPM
 song turkish
 speed 5
-@sq1: @lead o5 l16
+@sq1: @scoop o5 l16 v15 q6
 @sq1: <b a g+ a> c8 r8 d c <b> c e8 r8 | f e d+ e >b a g+ a c4< r4
 @sq1: >d c< b >c d c< b >c< a8 e8 a4 | c8 <b8> c8 e8 d8 c8 <b4>
 @sq1: <b a g+ a> c8 r8 d c <b> c e8 r8 | f e d+ e >b a g+ a c4< r4
 @sq1: e d c d e d c d <b8 a8 g+8> e8 | a8 <a8> b8 >c8 d8 e8 a4<
-@sq2: @stab o4 l8
+@sq2: @stab o4 l8 v10 q2
 @sq2: r a r a r a r a | r a r a r e r e
 @sq2: r a r a r a r a | r e r e r e r <e>
 @sq2: r a r a r a r a | r a r a r e r e
 @sq2: r a r a r e r e | r a r a r e r a
-@tri: @tri o3 l8
+@tri: @tri o3 l8 q6
 @tri: a >e< a >e< a >e< a >e< | a >e< a >e< e >e< e >e<
 @tri: a >e< a >e< a >e< a >e< | e >e< e >e< e >e< e >e<
 @tri: a >e< a >e< a >e< a >e< | a >e< a >e< e >e< e >e<
 @tri: a >e< a >e< e >e< e >e< | a >e< a >e< e >e< a a
-@noi: l8
+@noi: l8 v14
 @noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h
 @noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h s16 s16 s16 s16 s H
 @noi: h h16 h16 s h h h16 h16 s h | h h16 h16 s h h h16 h16 s h

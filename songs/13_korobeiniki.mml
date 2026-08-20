@@ -2,7 +2,7 @@
 #   A minor / 180BPM / 前半ふつう→後半オクターブ上で盛り上がる
 song korobeiniki
 speed 5
-@sq1: @leadv o5 l8
+@sq1: @scoop o5 l8 v14 q6
 @sq1: e4 <b8> c8 d4 c8 <b8> | o4 a4 a8 >c8 e4 d8 c8
 @sq1: <b4. >c8 d4 e4 | c4 <a4 a2>
 @sq1: d4. f8 a4 g8 f8 | e4. c8 e4 d8 c8
@@ -11,7 +11,7 @@ speed 5
 @sq1: <b4. >c8 d4 e4 | c4 <a4 a2>
 @sq1: o6 d4. f8 a4 g8 f8 | e4. c8 e4 d8 c8
 @sq1: <b4 b8 >c8 d4 e4 | c4 <a4 a2>
-@sq2: @stab o4 l8
+@sq2: @stab o4 l8 v10 q3
 @sq2: r e r a r e r g+ | r e r a r e r a
 @sq2: r e r g+ r e r g+ | r e r a r c r a
 @sq2: r f r a r f r a | r e r a r e r a
@@ -20,7 +20,7 @@ speed 5
 @sq2: r e r g+ r e r g+ | r e r a r c r a
 @sq2: r f r a r f r a | r e r a r e r a
 @sq2: r e r g+ r e r g+ | r e r a r c r a
-@tri: @tri o3 l8
+@tri: @tri o3 l8 q6
 @tri: a >e< a >e< e >e< e >e< | a >e< a >e< a >e< a >e<
 @tri: e >b< e >b< e >b< e >b< | a >e< a >e< a >e< a >e<
 @tri: d >a< d >a< d >a< d >a< | a >e< a >e< a >e< a >e<
