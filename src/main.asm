@@ -2314,7 +2314,9 @@ DrawGauge:
 	lda #12
 	sta OAM_BUF,x
 	lda <T7
-	sta OAM_BUF+1,x		; 小数字タイル$00-$09
+	clc
+	adc #1			; 数字+1 = 小数字タイル ($01='0')
+	sta OAM_BUF+1,x
 	lda #%00000010
 	sta OAM_BUF+2,x
 	lda #8
@@ -2325,6 +2327,8 @@ DrawGauge:
 	lda #12
 	sta OAM_BUF,x
 	lda <T6
+	clc
+	adc #1			; 数字+1 = 小数字タイル
 	sta OAM_BUF+1,x
 	lda #%00000010
 	sta OAM_BUF+2,x
@@ -3504,15 +3508,18 @@ PartVelY:	.db $FF,$FE,$01,$FE,$02,$FF,$FD,$00
 ; 得点ポップ発生 IN T0:x T1:y A:十の位(0=なし) X:一の位
 ;------------------------------------------------------------------------------
 PopSpawn:
+	; 小数字タイルは $01='0' なので数字+1がタイル番号
+	inx
+	stx POP_D2
 	cmp #0
 	bne .tens
-	lda #$FF
+	lda #$FF		; 十の位0 → 非表示
 	jmp .set
 .tens
-	; 値そのままが小数字タイル番号
+	clc
+	adc #1
 .set
 	sta POP_D1
-	stx POP_D2
 	lda <T0
 	sta POP_X
 	lda <T1
