@@ -170,7 +170,8 @@ PIPE_MOV	.equ	$0408	; 移動中フラグ
 PIPE_DIR	.equ	$040C	; 移動方向 (1 or $FF)
 PIPE_CNT	.equ	$0410	; 移動タイマー
 PIPE_PASS	.equ	$0414	; 通過済み(得点済み)
-PIPE_RECYC	.equ	$0418	; 再生成済みフラグ
+PIPE_RECYC	.equ	$0418	; 再生成フェーズ (0=未 5..2=列0..3描画待ち 1=完了)
+PIPE_MOVPH	.equ	$041C	; 移動再描画フェーズ (1=下側窓が未描画)
 
 ; アイテム (2個)
 ITEM_ACT	.equ	$0420	; +0,1: 有効
@@ -404,11 +405,12 @@ VbufFlush:
 	lda VBUF,x
 	sta PPUADDR
 	inx
+	ldy <T0
 .data
 	lda VBUF,x
 	sta PPUDATA
 	inx
-	dec <T0
+	dey
 	bne .data
 	jmp .entry
 .done
@@ -1073,6 +1075,7 @@ StageBuild:
 	sta PIPE_MOV,x
 	sta PIPE_PASS,x
 	sta PIPE_RECYC,x
+	sta PIPE_MOVPH,x
 	lda #1
 	sta PIPE_DIR,x
 	lda #8
@@ -1990,31 +1993,36 @@ HidePushA:
 
 ;------------------------------------------------------------------------------
 ; 土管スロット更新 (リサイクル + 上下移動)
+;   VBlank予算対策: 再描画はすべて小分けにしてバッファ混雑時は延期する
 ;------------------------------------------------------------------------------
 PipesUpdate:
 	ldx #0
 .slot
-	; --- リサイクル フェーズ2 (残り2列の描画) ---
+	; --- リサイクル描画フェーズ (1列/フレーム, RECYC=5..2 → 列0..3) ---
 	lda PIPE_RECYC,x
 	cmp #2
-	bne .zonechk
+	bcc .zonechk		; 0 or 1
 	lda <BUF_LEN
-	cmp #100
-	bcs .move		; バッファ混雑: 次フレーム
-	lda #2
+	cmp #50
+	bcs .move		; 混雑: 次フレーム再試行
+	lda #5
+	sec
+	sbc PIPE_RECYC,x	; 列番号 0-3
 	sta <DRAW_C0
-	lda #3
-	sta <DRAW_C1
+	sta <DRAW_C1		; 列3のときは属性も書かれる
+	lda #0
+	sta <T4
+	lda #25
+	sta <T5
 	txa
 	pha
 	jsr PipeSlotDrawBuf
 	pla
 	tax
-	lda #1
-	sta PIPE_RECYC,x
+	dec PIPE_RECYC,x
 	jmp .move
 .zonechk
-	; --- リサイクル判定: d = (scroll - slotX) & 511 が [40,47] ---
+	; --- リサイクル開始判定: d = (scroll - slotX) & 511 が [40,71] ---
 	lda <SCROLL_L
 	sec
 	sbc SlotXLo,x
@@ -2026,16 +2034,12 @@ PipesUpdate:
 	lda <T0
 	cmp #40
 	bcc .outzone
-	cmp #48
+	cmp #72
 	bcs .outzone
 	; ゾーン内
 	lda PIPE_RECYC,x
-	bne .move		; 既に再生成済み
-	; バッファ容量チェック
-	lda <BUF_LEN
-	cmp #60
-	bcs .move		; 今フレームは見送り(次フレーム再試行)
-	jsr PipeRecycle
+	bne .move		; 既に開始/完了
+	jsr PipeRecycle		; 抽選のみ (描画はフェーズで)
 	jmp .move
 .outzone
 	lda #0
@@ -2050,8 +2054,42 @@ PipesUpdate:
 	bne .mv2
 	jmp .next
 .mv2
-	; 鳥が近い間は動かさない: f = (scroll+BIRD_X+12+32 - slotX) & 511 <= 88
-	; (接近16px手前〜通過完了まで停止)
+	lda PIPE_RECYC,x
+	cmp #2
+	bcc .mv3
+	jmp .next		; リサイクル描画中は動かさない
+.mv3
+	; 下側窓の残り描画があれば先に
+	lda PIPE_MOVPH,x
+	beq .mvtimer
+	lda <BUF_LEN
+	cmp #50
+	bcs .jnext		; 混雑: 次フレーム
+	; 下側窓: 行[gap+GAP-1, gap+GAP+2]
+	lda PIPE_GAP,x
+	clc
+	adc #GAP_ROWS-1
+	sta <T4
+	lda PIPE_GAP,x
+	clc
+	adc #GAP_ROWS+2
+	sta <T5
+	lda #0
+	sta <DRAW_C0
+	lda #3
+	sta <DRAW_C1
+	txa
+	pha
+	jsr PipeSlotDrawBuf
+	pla
+	tax
+	lda #0
+	sta PIPE_MOVPH,x
+	jmp .next
+.jnext
+	jmp .next
+.mvtimer
+	; 鳥が近い間は動かさない (接近16px手前〜通過完了まで)
 	lda <SCROLL_L
 	clc
 	adc #BIRD_X+44
@@ -2070,15 +2108,15 @@ PipesUpdate:
 	lda <T0
 	cmp #89
 	bcs .movego
-	jmp .next		; 接近中: 停止 (タイマーも進めない)
+	jmp .next		; 接近中: 停止
 .movego
 	dec PIPE_CNT,x
 	beq .cnt0
 	jmp .next
 .cnt0
-	; バッファ容量チェック (移動再描画は73byte必要)
+	; 移動実行 (バッファ混雑時は1フレーム延期)
 	lda <BUF_LEN
-	cmp #160
+	cmp #50
 	bcc .domove
 	inc PIPE_CNT,x		; 次フレーム再試行
 	jmp .next
@@ -2102,13 +2140,11 @@ PipesUpdate:
 	clc
 	adc PIPE_DIR,x
 	sta PIPE_GAP,x
-	; 変更範囲のみ再描画: 行[gap-3, gap+GAP_ROWS+2]
+	; 上側窓のみ今フレーム描画: 行[gap-3, gap]
 	sec
 	sbc #3
 	sta <T4
 	lda PIPE_GAP,x
-	clc
-	adc #GAP_ROWS+2
 	sta <T5
 	lda #0
 	sta <DRAW_C0
@@ -2119,6 +2155,8 @@ PipesUpdate:
 	jsr PipeSlotDrawBuf
 	pla
 	tax
+	lda #1
+	sta PIPE_MOVPH,x	; 下側窓は次フレーム
 .next
 	inx
 	cpx #4
@@ -2131,12 +2169,13 @@ PipesUpdate:
 ; 土管再生成 IN X:スロット (X保存)
 ;------------------------------------------------------------------------------
 PipeRecycle:
-	lda #2
-	sta PIPE_RECYC,x	; フェーズ2(残り列)を予約
+	lda #5
+	sta PIPE_RECYC,x	; 描画フェーズ開始 (5..2で列0..3を1列ずつ)
 	lda #1
 	sta PIPE_ACT,x
 	lda #0
 	sta PIPE_PASS,x
+	sta PIPE_MOVPH,x
 	jsr PipeNewGap
 	; スコア10以上なら 1/2 の確率で移動土管に
 	lda #0
@@ -2164,20 +2203,6 @@ PipeRecycle:
 	lda #1
 	sta PIPE_DIR,x
 .nomove
-	; 前半2列の再描画 (行0-25) 残りは次フレーム(フェーズ2)
-	lda #0
-	sta <T4
-	lda #25
-	sta <T5
-	lda #0
-	sta <DRAW_C0
-	lda #1
-	sta <DRAW_C1
-	txa
-	pha
-	jsr PipeSlotDrawBuf
-	pla
-	tax
 	; アイテム出現 (75%)
 	jsr RngStep
 	lda <RNG
