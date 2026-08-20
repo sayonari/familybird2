@@ -334,18 +334,21 @@ footer a { color: var(--fc-cream); }
 
   // ---- ROM 読み込み ----
   var romData = null;
+  var pendingStart = false;
   fetch('FamilyBird2.nes').then(function(r){ return r.arrayBuffer(); }).then(function(ab){
     var bytes = new Uint8Array(ab);
     var s = '';
     for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
     romData = s;
+    if (pendingStart) powerOn();
   });
 
   // ---- 起動 ----
   var running = false;
   var audioCtx = null;
   function powerOn(){
-    if (running || !romData) return;
+    if (running) return;
+    if (!romData) { pendingStart = true; return; }   // 読み込み完了後に自動開始
     running = true;
     document.getElementById('boot').style.display = 'none';
 

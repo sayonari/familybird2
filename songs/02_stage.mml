@@ -1,33 +1,83 @@
-# ステージBGM: アップテンポ 16小節 (SMB3風タム&キック入り)
+# ステージBGM: 熱血ロック (オリジナル曲)
+#   Am / 180BPM / イントロ2 + A8 + B8 + C4 = 22小節ループ
+#   技法: ビブラートリード(leadv), パワーコードスタブ, オクターブ奏法ベース,
+#         16分ハット, DPCMキック/タム/スネア + ノイズスネアのレイヤ
 song stage
-speed 6
-# --- メロディ ---
-@sq1: @lead o5 l8
-@sq1: e g >c< g a >c< a g | e g >c< g >d c< b g | f a >c< a b >d c< a | >e d c< a g4 r8 g
-@sq1: e g >c< g a >c< a g | e g >c< g >d c< b g | f a >c< a b >d c< a | >e d e d c4< r4
-@sq1: a >c e c< a >c< a e | g b >d< b g b g d | f a >c< a f a f c | e g b g >c4< r8 g
-@sq1: a >c e c< a >c< a e | g b >d< b g b g d | f a >c< a f a f c | >c< b a b >c4 d4<
-# --- 裏打ちコード ---
-@sq2: @pluck o4 l8
-@sq2: r e r g r e r g | r e r g r e r g | r f r a r f r a | r d r g r d r g
-@sq2: r e r g r e r g | r e r g r e r g | r f r a r f r a | r e r g r d r g
-@sq2: r c r e r c r e | r d r g r d r g | r f r a r f r a | r e r g r e r g
-@sq2: r c r e r c r e | r d r g r d r g | r f r a r f r a | r d r f r d r g
-# --- ベース ---
+speed 5
+# ============ メロディ ============
+@sq1: @leadv o5 l8
+# --- イントロ (ユニゾンリフ) ---
+@sq1: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
+# --- Aセクション ---
+@sq1: e e16 e16 e d c d e g | a g e c d4 e g
+@sq1: f f16 f16 f e d e f a | g a b >d c< b a g
+@sq1: e e16 e16 e d c d e g | a g e c d4 e d
+@sq1: f a >c< a g b >d< b     | >e4 d8 c8< b a b4
+# --- Bセクション (伸びやかに) ---
+@sq1: a4 >c d e4 d c<   | b4 >d e f e d< b
+@sq1: >e4 c< b g a b4   | a4. g8 e4 g a
+@sq1: a4 >c d e4 d c<   | b4 >d e f e d< b
+@sq1: >e d+ e f e d< b g+ | b2 g+ a b >c<
+# --- Cセクション (駆け上がり) ---
+@sq1: >d d16 d16 d c d e f e< | >e e16 e16 e d e f g e<
+@sq1: >f e d e f4< a >c<      | g a b >c d e f+ g<
+# ============ ハモリ/スタブ/エコー ============
+@sq2: @stab o4 l8
+# --- イントロ (下でユニゾン) ---
+@sq2: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
+# --- A: 裏打ちパワーコード ---
+@sq2: r e r a r e r a | r e r a r e r a
+@sq2: r f r a r f r a | r g r b r g r b
+@sq2: r e r a r e r a | r e r a r e r a
+@sq2: r f r a r g r b | r e r a r e r a
+# --- B: ロングハーモニー ---
+@sq2: @lead2 l2
+@sq2: f a | g b | g e | e c
+@sq2: f a | g b | e g+ | g+ b
+# --- C: スタブ ---
+@sq2: @stab l8
+@sq2: r d r f r d r f | r e r g r e r g
+@sq2: r f r a r f r a | r g b16 b16 r g >d16 d16< b g
+# ============ ベース (オクターブ奏法) ============
 @tri: @tri o3 l8
-@tri: c r g r c r g g | c r g r c r g g | f r >c< r f r >c c< | g r >d< r g r >d d<
-@tri: c r g r c r g g | c r g r c r g g | f r >c< r f r >c c< | c r g r g r g g
-@tri: a r >e< r a r >e e< | g r >d< r g r >d d< | f r >c< r f r >c c< | c r g r c r g g
-@tri: a r >e< r a r >e e< | g r >d< r g r >d d< | f r >c< r f r >c c< | g r >d< r g g >d d<
-# --- ハイハット/スネア ---
+# --- イントロ ---
+@tri: a a16 a16 >c< a g a r e | a a16 a16 >c d e4 d c<
+# --- A ---
+@tri: a >a< a >a< a >a< a >a< | a >a< a >a< a >a< a >a<
+@tri: f >f< f >f< f >f< f >f< | g >g< g >g< g >g< g >g<
+@tri: a >a< a >a< a >a< a >a< | a >a< a >a< a >a< a >a<
+@tri: f >f< f >f< g >g< g >g< | a >a< a >a< a a g e
+# --- B ---
+@tri: f >f< f >f< f >f< f >f< | g >g< g >g< g >g< g >g<
+@tri: e >e< e >e< e >e< e >e< | a >a< a >a< a >a< a >a<
+@tri: f >f< f >f< f >f< f >f< | g >g< g >g< g >g< g >g<
+@tri: e >e< e >e< e >e< e >e< | e >e< e >e< e e d c+
+# --- C ---
+@tri: d >d< d >d< d >d< d >d< | e >e< e >e< e >e< e >e<
+@tri: f >f< f >f< f >f< f >f< | g >g< g >g< g a b >c<
+# ============ ハイハット/スネア ============
 @noi: l8
-@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
-@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
-@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h s h h16 h16 s16 s16 s16 s16 H8
-@noi: h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | h h16 h16 s h h h16 h16 s H | s16 s16 s16 s16 s8 s8 H4 H4
-# --- DPCM (キック/タム) ---
+@noi: H h16 h16 s h h h16 h16 s H | s16 s16 s16 s16 s s H s16 s16 s16 s16 H
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | s16 s16 s16 s16 s s H s16 s16 s16 s16 H
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | s16 s16 s16 s16 s s H s16 s16 s16 s16 H
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | s16 s16 s16 s16 s s H s16 s16 s16 s16 H
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | h h16 h16 s h h16 h16 h s h16 H16
+@noi: h h16 h16 s h h16 h16 h s h16 H16 | s16 s16 s16 s16 s16 s16 s16 s16 s s H H
+# ============ DPCM (キック/タム/スネア) ============
 @dpc: l8
-@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
-@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
-@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t8 t8 t8 T8 t8 T8
-@dpc: k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | k4 t4 k8 k8 t4 | t8 t8 T8 T8 t16 t16 T16 T16 k4
+@dpc: k r k r s r t T | k k16 k16 s r t t T T
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t t T T t16 t16 T16 T16 k s
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t t T T t16 t16 T16 T16 k s
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t t T T t16 t16 T16 T16 k s
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | k r s k16 k16 r k s r
+@dpc: k r s k16 k16 r k s r | t16 t16 T16 T16 k16 k16 s16 s16 t T k s

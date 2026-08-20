@@ -1904,11 +1904,39 @@ PipesUpdate:
 .move
 	; --- 上下移動 ---
 	lda PIPE_ACT,x
-	beq .next
+	bne .mv1
+	jmp .next
+.mv1
 	lda PIPE_MOV,x
-	beq .next
+	bne .mv2
+	jmp .next
+.mv2
+	; 鳥が近い間は動かさない: f = (scroll+BIRD_X+12+32 - slotX) & 511 <= 88
+	; (接近16px手前〜通過完了まで停止)
+	lda <SCROLL_L
+	clc
+	adc #BIRD_X+44
+	sta <T0
+	lda <SCROLL_H
+	adc #0
+	sta <T1
+	lda <T0
+	sec
+	sbc SlotXLo,x
+	sta <T0
+	lda <T1
+	sbc SlotXHi,x
+	and #$01
+	bne .movego		; 遠い
+	lda <T0
+	cmp #89
+	bcs .movego
+	jmp .next		; 接近中: 停止 (タイマーも進めない)
+.movego
 	dec PIPE_CNT,x
-	bne .next
+	beq .cnt0
+	jmp .next
+.cnt0
 	; バッファ容量チェック (移動再描画は73byte必要)
 	lda <BUF_LEN
 	cmp #160
@@ -2266,8 +2294,8 @@ CollisionCheck:
 	sta <T1			; gap*8
 	lda <BIRD_Y
 	clc
-	adc #4
-	cmp <T1			; birdY+4 < gap*8 → 上の土管にヒット
+	adc #5
+	cmp <T1			; birdY+5 < gap*8 → 上の土管にヒット
 	bcc .die
 	lda <T1
 	clc
@@ -2275,9 +2303,9 @@ CollisionCheck:
 	sta <T1			; ゲート下端
 	lda <BIRD_Y
 	clc
-	adc #13
+	adc #12
 	cmp <T1
-	bcs .die		; birdY+13 >= 下端 → 下の土管にヒット
+	bcs .die		; birdY+12 >= 下端 → 下の土管にヒット
 	jmp .next
 .die
 	jmp BirdDie

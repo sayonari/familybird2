@@ -30,6 +30,9 @@ sfxa_wait	.equ	SND_RAM+$1C
 sfxa_on		.equ	SND_RAM+$1D
 sfxb_wait	.equ	SND_RAM+$1E
 sfxb_on		.equ	SND_RAM+$1F
+snd_tick	.equ	SND_RAM+$20	; ビブラート用フレームカウンタ
+snd_perlo	.equ	SND_RAM+$21	; +33..35 : SQ1/SQ2/TRI 基準周期(下位)
+snd_perhi	.equ	SND_RAM+$24	; +36..38 : 同(上位)
 
 ;==============================================================================
 ; 初期化
@@ -176,6 +179,7 @@ sfx_play:
 ; 毎フレーム更新
 ;==============================================================================
 sound_update:
+	inc snd_tick
 	jsr music_update
 	jsr sfx_update
 	rts
@@ -332,25 +336,34 @@ mus_ch_trigger:
 	sta $4008
 	ldy snd_note,x
 	lda note_table_lo,y
+	sta snd_perlo+2
 	sta $400A
 	lda note_table_hi,y
+	sta snd_perhi+2
 	sta $400B
 	rts
 .noise
-	; --- ノイズ: note = 周期(0-15) ---
+	; --- ノイズ: note = 周期(0-15)  SFX再生中は触らない ---
+	lda sfxb_on
+	bne .nskip
 	lda snd_note,x
 	sta $400E
 	lda #$08
 	sta $400F
+.nskip
 	rts
 .pulse
 	; --- パルス1/2 (X=0/1) ---
 	ldy snd_note,x
 	lda note_table_lo,y
+	sta snd_perlo,x
+	lda note_table_hi,y
+	sta snd_perhi,x
 	cpx #0
 	bne .p2
+	lda snd_perlo
 	sta $4002
-	lda note_table_hi,y
+	lda snd_perhi
 	cmp snd_hicache
 	beq .p1done
 	sta snd_hicache
@@ -358,8 +371,12 @@ mus_ch_trigger:
 .p1done
 	rts
 .p2
+	; SFX再生中はレジスタに触らない (SFX終了時にhicache=$FFで復帰)
+	lda sfxa_on
+	bne .p2done
+	lda snd_perlo+1
 	sta $4006
-	lda note_table_hi,y
+	lda snd_perhi+1
 	cmp snd_hicache+1
 	beq .p2done
 	sta snd_hicache+1
@@ -373,14 +390,26 @@ mus_ch_trigger:
 mus_ch_envelope:
 	cpx #2
 	bcc .pulse
-	beq .none		; TRIは不要
+	beq .tri
 	cpx #3
 	beq .noise
-.none
+	rts
+.tri
+	; TRIはビブラートのみ
+	lda snd_keyon,x
+	beq .tdone
+	jsr snd_vibrato
+.tdone
 	rts
 .pulse
 	lda snd_keyon,x
 	beq .off_p
+	; SQ2はSFX再生中に触らない
+	cpx #1
+	bne .pgo
+	lda sfxa_on
+	bne .pdone
+.pgo
 	jsr mus_env_value	; A=音量
 	ora #$30		; 定音量+レングス停止
 	ldy snd_inst,x
@@ -388,21 +417,78 @@ mus_ch_envelope:
 	cpx #0
 	bne .p2w
 	sta $4000
-	rts
+	jmp .pvib
 .p2w
 	sta $4004
+.pvib
+	jsr snd_vibrato
+.pdone
 	rts
 .off_p
 	jmp mus_ch_silence
 .noise
 	lda snd_keyon,x
 	beq .off_n
+	lda sfxb_on
+	bne .ndone
 	jsr mus_env_value
 	ora #$30
 	sta $400C
+.ndone
 	rts
 .off_n
 	jmp mus_ch_silence
+
+;------------------------------------------------------------------------------
+; ビブラート適用 IN X:ch(0/1/2, keyon中)  周期下位のみ揺らす($4003系は触らない)
+;------------------------------------------------------------------------------
+snd_vibrato:
+	ldy snd_inst,x
+	lda inst_vib,y
+	bne .on
+	rts
+.on
+	; 端の周期では境界跨ぎ防止のためスキップ
+	pha
+	lda snd_perlo,x
+	cmp #$08
+	bcc .skip2
+	cmp #$F0
+	bcs .skip2
+	; インデクス = (tick>>2)&7
+	lda snd_tick
+	lsr a
+	lsr a
+	and #$07
+	tay
+	pla
+	cmp #2
+	beq .d2
+	lda vib_tbl1,y
+	jmp .add
+.d2
+	lda vib_tbl2,y
+.add
+	clc
+	adc snd_perlo,x
+	cpx #0
+	beq .w0
+	cpx #1
+	beq .w1
+	sta $400A
+	rts
+.w0
+	sta $4002
+	rts
+.w1
+	sta $4006
+	rts
+.skip2
+	pla
+	rts
+
+vib_tbl1:	.db 0,1,1,0,0,$FF,$FF,0
+vib_tbl2:	.db 0,1,2,1,0,$FF,$FE,$FF
 
 ; --- エンベロープ現在値を得て進める IN X:ch OUT A:音量(0-15) ---
 mus_env_value:
